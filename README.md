@@ -3,6 +3,16 @@
 This directory contains a collection of browser-based 3D casino game prototypes and demos built with three.js.
 Each page is self-contained and loads local assets (cards, chips, sounds, table textures) plus three.js modules from this folder.
 
+## Live Links (Might Expire on April 24)
+```
+Blackjack:          https://www.cs.csub.edu/~akoli/Casino/bj.html
+Baccarat:           https://www.cs.csub.edu/~akoli/Casino/chemin.html
+Keno:               https://www.cs.csub.edu/~akoli/Casino/keno.html
+Roulette:           https://www.cs.csub.edu/~akoli/Casino/roulette.html
+Poker:              https://www.cs.csub.edu/~akoli/Casino/poker.html
+Multiplayer Poker:  https://www.cs.csub.edu/~akoli/Casino/poker_p2p.html?room=epstein
+
+```
 ## What Is Included
 
 - Blackjack (main + beta)
