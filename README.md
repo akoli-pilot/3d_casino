@@ -10,7 +10,7 @@ Baccarat:           https://www.cs.csub.edu/~akoli/Casino/chemin.html
 Keno:               https://www.cs.csub.edu/~akoli/Casino/keno.html
 Roulette:           https://www.cs.csub.edu/~akoli/Casino/roulette.html
 Poker:              https://www.cs.csub.edu/~akoli/Casino/poker.html
-Multiplayer Poker:  https://www.cs.csub.edu/~akoli/Casino/poker_p2p.html?room=epstein
+Multiplayer Poker:  https://www.cs.csub.edu/~akoli/Casino/poker_p2p.html?room=bill
 
 ```
 ## What Is Included
