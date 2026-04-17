@@ -1,0 +1,2311 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>3D Blackjack (three.js)</title>
+  <style>
+    html,body{height:100%;margin:0;background:#071718;font-family:Inter,system-ui,Arial}
+    .ui{position:absolute;left:12px;top:12px;z-index:5;color:#cfeff0}
+    .ui button{background:#0d6b75;border:0;padding:8px 12px;border-radius:8px;color:white;margin-right:8px;cursor:pointer}
+    .ui label{color:#9fd6db;margin-left:8px}
+    #info{position:absolute;right:12px;top:12px;color:#bfe9ee;z-index:5;background:rgba(0,0,0,0.25);padding:8px;border-radius:8px}
+    canvas{display:block}
+    .log{position:fixed;left:12px;bottom:12px;color:#9fd6db;background:rgba(0,0,0,0.25);padding:6px;border-radius:6px;font-size:12px}
+    /* Odds overlay */
+    #oddsContainer{position:fixed;left:0;top:0;right:0;bottom:0;pointer-events:none;z-index:4}
+    .oddsLabel{position:absolute;color:#fff;font-size:13px;font-family:Arial,Helvetica,sans-serif;pointer-events:none;text-shadow:0 0 6px rgba(0,0,0,0.9)}
+
+    #intro-title {
+                position: fixed;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                font-size: clamp(3.5rem, 9vw, 9rem);
+                font-weight: 800;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+
+                color: #f2f2f2;
+
+                text-shadow:
+                    0 0 12px rgba(255, 255, 255, 0.08),
+                    0 0 32px rgba(255, 255, 255, 0.04);
+
+                background:
+                    radial-gradient(
+                        ellipse at center,
+                        rgba(0, 0, 0, 0.35) 0%,
+                        rgba(0, 0, 0, 0.65) 100%
+                    );
+
+                pointer-events: none;
+                z-index: 9999;
+
+                opacity: 0;
+                filter: blur(10px);
+                transform: scale(1.02);
+
+                animation: controlIntro 4.5s cubic-bezier(0.4, 0, 0.2, 1)
+                    forwards;
+      }
+
+      @keyframes controlIntro {
+                0% {
+                    opacity: 0;
+                    filter: blur(10px);
+                    transform: scale(1.02);
+                }
+
+                18% {
+                    opacity: 1;
+                    filter: blur(0);
+                    transform: scale(1);
+                }
+
+                70% {
+                    opacity: 1;
+                    filter: blur(0);
+                }
+
+                100% {
+                    opacity: 0;
+                    filter: blur(6px);
+                }
+      }
+
+  </style>
+
+</head>
+<body>
+  <!-- Intro -->
+  <div id="intro-title">BLACKJACK</div>
+  <div class="ui">
+    <button id="shuffleBtn">Shuffle</button>
+    <button id="dealBtn">Deal</button>
+    <button id="resetBtn">Reset Deck</button>
+    <button id="revealBtn">Reveal</button>
+    <button id="hitBtn" type="button" disabled>Hit</button>
+    <button id="standBtn" type="button" disabled>Stand</button>
+    <button id="splitBtn" type="button" disabled>Split</button>
+    <button id="doubleBtn" type="button" disabled>Double</button>
+    <!-- Chip spawn buttons -->
+    <button id="chipBlackBtn" type="button">Black: $100</button>
+    <button id="chipBlueBtn"  type="button">Blue: $10</button>
+    <button id="chipGreenBtn" type="button">Green: $25</button>
+    <button id="chipRedBtn"   type="button">Red: $5</button>
+    <label>Speed <input id="speed" type="range" min="0.1" max="3" step="0.1" value="3"></label>
+  </div>
+  <div class="log" id="log">Initializing…</div>
+  <div id="oddsContainer" aria-hidden="true"></div>
+
+  <script type="importmap">
+			{
+				"imports": {
+					"three": "./three.module.js",
+					"three/addons/": "./jsm/"
+				}
+			}
+		</script>
+
+  <script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+  (async ()=>{
+    init(THREE, OrbitControls);
+    async function init(THREE, OrbitControls){
+      document.getElementById('log').textContent = 'Initializing scene…';
+
+      // scene setup
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x062b2c);
+      const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 1000);
+      // moved back so larger arc and distant seats remain in view
+      camera.position.set(0, 6, 16);
+
+      const renderer = new THREE.WebGLRenderer({antialias:true});
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      //renderer.outputEncoding = THREE.SRGBColorSpace;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      if(controls) {
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.screenSpacePanning = false;
+        controls.maxPolarAngle = Math.PI/2.1;
+        // Tabletop view (could be locked after finishing turn)
+        //controls.maxPolarAngle = 0;
+      }
+      
+
+      // lights (Hemisphere + Directional + Ambient)
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+      hemi.position.set(0,20,0); scene.add(hemi);
+      const dir = new THREE.DirectionalLight(0xffffff, 0.7);
+      dir.position.set(5,10,7);
+      dir.castShadow = true;
+      dir.shadow.bias = -0.0005;
+      dir.shadow.normalBias = 0.02;
+      scene.add(dir);
+      // small ambient fill light to prevent cards going too dark in shadowed regions
+      const ambientFill = new THREE.AmbientLight(0xffffff, 0.12);
+      scene.add(ambientFill);
+
+      // ground plane (playing surface)
+      const surfaceTex = new THREE.TextureLoader().load('surfaces/1.webp', tex => {
+        try{
+          tex.wrapS = THREE.ClampToEdgeWrapping;
+          tex.wrapT = THREE.ClampToEdgeWrapping;
+          tex.repeat.set(1, 1);
+          //tex.encoding = THREE.SRGBColorSpace;
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+          tex.needsUpdate = true;
+        }catch(e){}
+      });
+      const gmat = new THREE.MeshStandardMaterial({map: surfaceTex, metalness:0.1, roughness:0.9});
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(20,20), gmat);
+      ground.rotation.x = -Math.PI/2; ground.position.y = -0.01; ground.receiveShadow = true; scene.add(ground);
+
+      // deck and card geometry
+      const CARD_W = 2.5; // width
+      const CARD_H = 3.6; // height
+      const CARD_T = 0.04; // thickness
+      const GROUND_Y = -0.01;
+      // gap between cards
+      const GAP = 0.001;
+      const BASE_DECK_Y = GROUND_Y + GAP;
+      // Table anchors from provided world coordinates
+      const BLACKJACK_DECK_SQUARE = [
+        new THREE.Vector3(6.4171465131, BASE_DECK_Y, -8.7204094690),
+        new THREE.Vector3(5.0991682662, BASE_DECK_Y, -5.5854126679),
+        new THREE.Vector3(8.9315419066, BASE_DECK_Y, -7.6967370441),
+        new THREE.Vector3(7.6519513756, BASE_DECK_Y, -4.5681381958)
+      ];
+      const DECK_CENTER = new THREE.Vector3(7.0121561100, BASE_DECK_Y, -6.5451055662);
+      const CHIPS_BETTING_CIRCLE_CENTER = new THREE.Vector3(-0.0447856699, BASE_DECK_Y, 6.5706973770);
+      // Audio: listener + positional shuffle sound anchored at deck
+      const listener = new THREE.AudioListener();
+      camera.add(listener);
+      const audioLoader = new THREE.AudioLoader();
+      let shuffleSound = null;
+      const deckAnchor = new THREE.Object3D();
+      deckAnchor.position.copy(DECK_CENTER);
+      scene.add(deckAnchor);
+      shuffleSound = new THREE.PositionalAudio(listener);
+      deckAnchor.add(shuffleSound);
+      // load shuffle wav (relative to beta.html)
+      audioLoader.load('sfx/shuffle/s1.wav', function(buffer){
+        try{
+          shuffleSound.setBuffer(buffer);
+          shuffleSound.setRefDistance(2);
+          shuffleSound.setRolloffFactor(1);
+          shuffleSound.setVolume(1);
+          shuffleSound.setLoop(false);
+        }catch(e){ console.warn('shuffle audio load failed', e); }
+      }, undefined, function(err){ console.warn('shuffle audio load error', err); });
+      // store original anchor for jittering
+      const _deckAnchorOrig = deckAnchor.position.clone();
+      function playShuffleWithJitter(opts = {}){
+        const rx = opts.x || 0.18; // lateral jitter radius
+        const rz = opts.z || 0.12; // depth jitter radius
+        const ry = opts.y || 0.02; // small vertical lift
+        if(!shuffleSound) return;
+        // apply small random offset around original anchor
+        deckAnchor.position.set(
+          _deckAnchorOrig.x + (Math.random()*2 - 1) * rx,
+          _deckAnchorOrig.y + (Math.random()*2 - 1) * ry,
+          _deckAnchorOrig.z + (Math.random()*2 - 1) * rz
+        );
+        try{
+          if(shuffleSound.isPlaying) shuffleSound.stop();
+          if(shuffleSound.buffer) shuffleSound.play();
+        }catch(e){ console.warn('shuffle play failed', e); }
+        // restore anchor after playback (use buffer duration when available)
+        const durMs = (shuffleSound && shuffleSound.buffer && shuffleSound.buffer.duration) ? (shuffleSound.buffer.duration * 1000) : 800;
+        setTimeout(()=>{ try{ deckAnchor.position.copy(_deckAnchorOrig); }catch(e){} }, Math.min(durMs + 120, 1500));
+      }
+      // Load deal sound buffers (random pick from sfx/deal)
+      const dealFiles = ['sfx/deal/d1.wav','sfx/deal/d2.wav','sfx/deal/d3.wav','sfx/deal/d4.wav','sfx/deal/d5.wav','sfx/deal/d6.wav'];
+      const dealBuffers = [];
+      const dealLoadPromises = dealFiles.map(path => new Promise(res => {
+        audioLoader.load(path, buf => { try{ dealBuffers.push(buf); }catch(e){}; res(true); }, undefined, () => { res(false); });
+      }));
+      Promise.all(dealLoadPromises).then(()=>{ console.log('deal sounds loaded:', dealBuffers.length); }).catch(()=>{});
+
+      // Background music playlist (non-positional) — load theme tracks and play them alternately
+      const themeFiles = ['sfx/theme/min9.mp3','sfx/theme/bebop.mp3', 'sfx/theme/spulcro.mp3', 'sfx/theme/blkwtr.mp3'];
+      const themeBuffers = [];
+      const themeLoadPromises = themeFiles.map(path => new Promise(res => {
+        audioLoader.load(path, buf => { try{ themeBuffers.push({ path, buf }); }catch(e){}; res(true); }, undefined, err=>{ console.warn('theme load failed', path, err); res(false); });
+      }));
+
+      // single non-positional audio attached to listener (background music)
+      const bgAudio = new THREE.Audio(listener);
+      let _currentThemeIndex = -1;
+      let _bgPlaying = false;
+
+      function _pickNextThemeIndex(){
+        if(themeBuffers.length === 0) return -1;
+        if(themeBuffers.length === 1) return 0;
+        // pick a random index different from current
+        let i = Math.floor(Math.random() * themeBuffers.length);
+        if(i === _currentThemeIndex) i = (i + 1) % themeBuffers.length;
+        return i;
+      }
+
+      function startBackgroundMusic(opts = {}){
+        if(_bgPlaying) return;
+        if(!themeBuffers || themeBuffers.length === 0) return;
+        _bgPlaying = true;
+        function playNext(){
+          const idx = _pickNextThemeIndex();
+          if(idx < 0) return;
+          _currentThemeIndex = idx;
+          const entry = themeBuffers[idx];
+          try{
+            bgAudio.stop();
+          }catch(e){}
+          try{
+            bgAudio.setBuffer(entry.buf);
+            bgAudio.setLoop(false);
+            bgAudio.setVolume(typeof opts.volume === 'number' ? opts.volume : 0.42);
+            try{ bgAudio.playbackRate = typeof opts.playbackRate === 'number' ? opts.playbackRate : 1; }catch(e){}
+            bgAudio.play();
+            // exact cleanup/next when buffer ends
+            if(bgAudio.source && typeof bgAudio.source.onended === 'function'){
+              bgAudio.source.onended = ()=>{ if(_bgPlaying) setTimeout(playNext, opts.gapMs || 200); };
+            } else {
+              const dur = (entry.buf && entry.buf.duration) ? (entry.buf.duration * 1000) : 30000;
+              setTimeout(()=>{ if(_bgPlaying) playNext(); }, dur + (opts.gapMs || 200));
+            }
+          }catch(e){ console.warn('bgAudio play failed', e); }
+        }
+        playNext();
+      }
+
+      function stopBackgroundMusic(){ _bgPlaying = false; try{ bgAudio.stop(); }catch(e){} }
+
+      // start on first user gesture (autoplay policy) after theme buffers load
+      Promise.all(themeLoadPromises).then(()=>{
+        console.log('theme tracks loaded:', themeBuffers.length);
+        const onFirst = function(){
+          try{ startBackgroundMusic(); }catch(e){}
+          window.removeEventListener('pointerdown', onFirst);
+        };
+        window.addEventListener('pointerdown', onFirst, { once: true });
+      }).catch(()=>{});
+
+      // Play a random deal sound at a given world position (pos: THREE.Vector3)
+      function playDealAt(pos, opts = {}){
+        if(!dealBuffers || dealBuffers.length === 0) return;
+        const buf = dealBuffers[Math.floor(Math.random() * dealBuffers.length)];
+        if(!buf) return;
+        // If caller passed a Mesh/Object3D, attach audio to it so the sound follows the moving card.
+        let attachedToMesh = null;
+        let anchor;
+        if(pos && typeof pos === 'object' && (pos.isMesh || pos.isObject3D || pos.add)){
+          anchor = pos; attachedToMesh = pos;
+        } else {
+          anchor = new THREE.Object3D();
+          anchor.position.copy(pos || new THREE.Vector3(0, BASE_DECK_Y, 0));
+          scene.add(anchor);
+        }
+        const p = new THREE.PositionalAudio(listener);
+        anchor.add(p);
+        try{
+          p.setBuffer(buf);
+          p.setRefDistance(opts.refDistance || 1.2);
+          p.setRolloffFactor(opts.rolloff || 1);
+          p.setVolume(typeof opts.volume === 'number' ? opts.volume : 0.9);
+          // allow explicit playbackRate override, fallback to small random variation
+          try{ p.playbackRate = typeof opts.playbackRate === 'number' ? opts.playbackRate : 1 + (Math.random() - 0.5) * 0.12; }catch(e){}
+          p.setLoop(false);
+          p.play();
+        }catch(e){ console.warn('playDealAt failed', e); }
+        const durMs = (buf && buf.duration) ? (buf.duration * 1000) : 600;
+
+        const cleanup = ()=>{
+          try{
+            if(p && p.isPlaying) try{ p.stop(); }catch(e){}
+            if(p && p.parent) p.parent.remove(p);
+            // remove temporary anchor only when we created it here
+            if(!attachedToMesh && anchor && anchor.parent) anchor.parent.remove(anchor);
+          }catch(e){}
+        };
+
+        // prefer AudioBufferSourceNode onended when available for exact cleanup
+        try{
+          if(p && p.source && typeof p.source.onended === 'function'){
+            p.source.onended = cleanup;
+          } else {
+            setTimeout(cleanup, Math.min(durMs + 300, 3000));
+          }
+        }catch(e){ setTimeout(cleanup, Math.min(durMs + 300, 3000)); }
+      }
+      // increase per-card stacking offset to avoid z-fighting when cards touch
+      const STACK_OFFSET = 0.008;
+      // small dealt card lift so textures don't merge (increased to avoid overlap)
+      const DEAL_LAYER_RAISE = 0.01;
+      // larger bias to separate front/back polygon surfaces of each card
+      const FACE_BIAS = 0.0025;
+      // horizontal spread for dealer upcard/hole so they are visually separated (increased)
+     const DEALER_SPREAD = 2.8;
+      // small fallback texture factory used when a real texture is missing or clone isn't available
+      function placeholderTexture(id){
+        try{
+          const size = 64;
+          const canvas = document.createElement('canvas');
+          canvas.width = canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0,0,size,size);
+          ctx.fillStyle = '#000000';
+          ctx.font = '12px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(id?String(id).slice(0,3):'card', size/2, size/2);
+          const tex = new THREE.CanvasTexture(canvas);
+          tex.flipY = true;
+          //tex.encoding = THREE.SRGBColorSpace;
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.needsUpdate = true;
+          return tex;
+        }catch(e){
+          return new THREE.Texture();
+        }
+      }
+
+      function createCardMesh(frontTexture, backTexture){
+        // create geometry with its origin at the bottom of the card
+        const geom = new THREE.BoxGeometry(CARD_W, CARD_H, CARD_T);
+        geom.translate(0, CARD_H / 2, 0);
+        // Slightly push front (+Z) and back (-Z) face vertices along their normals for stacking tightly
+        const pos = geom.attributes.position.array;
+        const nrm = geom.attributes.normal.array;
+        const vcount = geom.attributes.position.count;
+        for(let i=0;i<vcount;i++){
+          const nz = nrm[i*3 + 2];
+          if(nz > 0.9){
+            pos[i*3 + 2] += FACE_BIAS;
+          } else if(nz < -0.9){
+            pos[i*3 + 2] -= FACE_BIAS;
+          }
+        }
+        geom.attributes.position.needsUpdate = true;
+        geom.computeVertexNormals();
+        // side material also participates in polygonOffset to prevent thin-edge artifacts
+        const sideMat = new THREE.MeshStandardMaterial({color:0x111111, metalness:0.1, roughness:0.7, polygonOffset: true, polygonOffsetFactor: 0.5, polygonOffsetUnits: 1});
+        // face materials: use depth buffer (depthTest + depthWrite) and stronger polygonOffset
+        // Keep alphaTest slightly higher to reject thin semi-transparent pixels at edges.
+        // Reduced polygon offset and alphaTest to avoid occlusion/discard at glancing angles.
+        const faceMaterialOpts = {
+           roughness: 0.6,
+           polygonOffset: true,
+           polygonOffsetFactor: 0.5, // much smaller offset to avoid pushing fragments behind other geometry
+           polygonOffsetUnits: 1,
+           alphaTest: 0.01,          // lower alpha reject so thin edges don't vanish at oblique sampling
+           depthWrite: true,
+           depthTest: true,
+           transparent: false,
+           side: THREE.DoubleSide
+         };
+         const frontMat = new THREE.MeshStandardMaterial(Object.assign({ map: frontTexture }, faceMaterialOpts));
+         const backMat  = new THREE.MeshStandardMaterial(Object.assign({ map: backTexture  }, faceMaterialOpts));
+         // BoxGeometry expects 6 materials: +X, -X, +Y, -Y, +Z, -Z
+         const materials = [sideMat, sideMat, sideMat, sideMat, frontMat, backMat];
+        const mesh = new THREE.Mesh(geom, materials);
+        // allow cards to cast shadows but avoid them receiving shadows to prevent darkening/self-shadowing
+        mesh.castShadow = true;
+        mesh.receiveShadow = false;
+        return mesh;
+      }
+
+      // load textures for all cards
+      const suits = ['spades','hearts','diamonds','clubs'];
+      const ranks = ['ace','2','3','4','5','6','7','8','9','10','jack','queen','king'];
+      const deckIds = [];
+      for(const s of suits) for(const r of ranks) deckIds.push({suit:s, rank:r, id:`${s}-${r}`});
+
+      let deck = deckIds.slice();
+      let textures = {}; // id -> Texture
+      let backTexture = null;
+
+      const loader = new THREE.TextureLoader();
+
+      // chip creation
+      const CHIP_DIAMETER = 1.2;
+      const CHIP_THICKNESS = 0.14;
+      const chipTextureCache = {}; // color -> THREE.Texture
+
+      function colorToHex(c){
+        switch(String(c).toLowerCase()){
+          case 'black': return 0x0b0b0b;
+          case 'blue':  return 0x1b6eff;
+          case 'green': return 0x1bbf5a;
+          case 'red':   return 0xd73b3b;
+          default: return 0x000000;
+        }
+      }
+      function colorToCss(c){
+        switch(String(c).toLowerCase()){
+          case 'black': return '#0b0b0b';
+          case 'blue':  return '#1b6eff';
+          case 'green': return '#1bbf5a';
+          case 'red':   return '#d73b3b';
+          default: return '#000000';
+        }
+      }
+
+      // create a chip top texture that draws the loaded image
+      // paints a strictly-square checkered ring around the rim (white / chip color).
+      function getChipTexture(color, size = 1024){
+        if(chipTextureCache[color]) return chipTextureCache[color];
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        const cx = size/2, cy = size/2;
+        const R = Math.round(size * 0.45);
+
+      // build a small 2x2 checker tile (strict squares)
+      const tileS = Math.max(4, Math.round(size * 0.012));
+      const tile = document.createElement('canvas');
+      tile.width = tile.height = tileS * 2;
+      const t = tile.getContext('2d');
+      t.imageSmoothingEnabled = false;
+      for(let y=0;y<2;y++){
+        for(let x=0;x<2;x++){
+          t.fillStyle = ((x + y) % 2 === 0) ? '#ffffff' : colorToCss(color);
+          t.fillRect(x * tileS, y * tileS, tileS, tileS);
+        }
+      }
+	const pattern = ctx.createPattern(tile, 'repeat');
+
+	// Align the checker grid so a tile seam sits exactly at the chip edge (cx + R).
+	// This makes the checks effectively start from the edge and extend inward.
+	const period = tile.width; // tile size repeat period
+	const offsetX = (cx + R) % period;
+	const offsetY = cy % period;
+
+	if(pattern.setTransform){
+		// modern browsers: shift the pattern's coordinate space so seam aligns at (cx+R, cy)
+		const m = new DOMMatrix();
+		m.translateSelf(-offsetX, -offsetY);
+		pattern.setTransform(m);
+		// paint pattern full-canvas then mask
+		ctx.fillStyle = pattern;
+		ctx.fillRect(0,0,size,size);
+	} else {
+		// fallback: translate canvas temporarily to achieve equivalent alignment
+		ctx.save();
+		ctx.translate(-offsetX, -offsetY);
+		ctx.fillStyle = pattern;
+		ctx.fillRect(offsetX, offsetY, size + period, size + period);
+		ctx.restore();
+	}
+
+	// create texture and force nearest filtering / no mipmaps to avoid edge blending
+	const tex = new THREE.CanvasTexture(canvas);
+	tex.flipY = false;
+	//try{ tex.encoding = THREE.SRGBColorSpace; }catch(e){}
+  try{ tex.colorSpace = THREE.SRGBColorSpace; }catch(e){}
+
+	try{ tex.anisotropy = renderer.capabilities.getMaxAnisotropy(); }catch(e){}
+	try{
+		tex.minFilter = THREE.NearestFilter;
+		tex.magFilter = THREE.NearestFilter;
+		tex.generateMipmaps = false;
+	}catch(e){}
+	chipTextureCache[color] = tex;
+
+	// composite optional center image: clear center cleanly then draw image
+	const path = `chips/${color}.webp`;
+	loader.load(path,
+		(loaded) => {
+			try{
+				const img = loaded.image || loaded;
+				// inner radius slightly smaller than pattern inner so image nearly fills chip
+				const innerFactor = 0.86;
+				const innerR = Math.max(2, Math.round(R * innerFactor));
+				const drawR = Math.max(4, Math.round(innerR - Math.max(2, Math.round(size * 0.01))));
+				// cut slightly larger to avoid any residual pattern fringe
+				ctx.save();
+				ctx.globalCompositeOperation = 'destination-out';
+				ctx.beginPath();
+				ctx.arc(cx, cy, drawR + 3, 0, Math.PI*2);
+				ctx.fill();
+				ctx.globalCompositeOperation = 'source-over';
+				ctx.restore();
+				ctx.drawImage(img, cx - drawR, cy - drawR, drawR*2, drawR*2);
+				tex.needsUpdate = true;
+			}catch(e){
+				console.warn('Failed to composite chip image', path, e);
+			}
+		},
+		undefined,
+		() => { /* keep pattern-only chip if no image */ }
+	);
+
+	return tex;
+}
+
+      // create a side texture composed of strict square checks (horizontal repetition)
+      function getChipSideTexture(color, width = 1024, height = 128, checks = 64){
+        const key = `side_${color}`;
+        if(chipTextureCache[key]) return chipTextureCache[key];
+        // tile size chosen to give 'checks' across width
+        const sq = Math.max(4, Math.round(width / checks));
+        const tile = document.createElement('canvas');
+        tile.width = sq * 2;
+        tile.height = sq * 2;
+        const t = tile.getContext('2d');
+        t.imageSmoothingEnabled = false;
+        // 2x2 checker in tile
+        for(let y=0;y<2;y++){
+          for(let x=0;x<2;x++){
+            t.fillStyle = ((x + y) % 2 === 0) ? '#ffffff' : colorToCss(color);
+            t.fillRect(x * sq, y * sq, sq, sq);
+          }
+        }
+        const sideCanvas = document.createElement('canvas');
+        sideCanvas.width = width;
+        sideCanvas.height = height;
+        const g = sideCanvas.getContext('2d');
+        g.imageSmoothingEnabled = false;
+        const pattern = g.createPattern(tile, 'repeat');
+        g.fillStyle = pattern;
+        g.fillRect(0,0,width,height);
+
+        const sideTex = new THREE.CanvasTexture(sideCanvas);
+        sideTex.wrapS = THREE.RepeatWrapping;
+        sideTex.wrapT = THREE.ClampToEdgeWrapping;
+        sideTex.repeat.set(1,1);
+        //try{ sideTex.encoding = THREE.SRGBColorSpace; }catch(e){}
+        try{ sideTex.colorSpace = THREE.SRGBColorSpace; }catch(e){}
+
+        try{ sideTex.anisotropy = renderer.capabilities.getMaxAnisotropy(); }catch(e){}
+        // avoid linear filtering (prevents semi-transparent edge blending which can look like rings)
+        try{
+          sideTex.minFilter = THREE.NearestFilter;
+          sideTex.magFilter = THREE.NearestFilter;
+          sideTex.generateMipmaps = false;
+        }catch(e){}
+         chipTextureCache[key] = sideTex;
+         return sideTex;
+      }
+
+      function createChipMesh(color){
+        const geom = new THREE.CylinderGeometry(CHIP_DIAMETER/2, CHIP_DIAMETER/2, CHIP_THICKNESS, 64);
+        // translate so origin is at bottom of chip
+        geom.translate(0, CHIP_THICKNESS/2, 0);
+        // top/bottom texture (canvas-based composed texture with checkered ring)
+        const topTex = getChipTexture(color);
+        const botTex = topTex;
+        // side texture: repeating vertical checks mapped around circumference
+        const sideTex = getChipSideTexture(color);
+        // materials
+        const sideMat = new THREE.MeshStandardMaterial({ map: sideTex, metalness: 0.15, roughness: 0.6 });
+        const topMat  = new THREE.MeshStandardMaterial({ map: topTex, side: THREE.DoubleSide, roughness: 0.45, metalness: 0.25 });
+        const botMat  = new THREE.MeshStandardMaterial({ map: botTex, side: THREE.DoubleSide, roughness: 0.45, metalness: 0.25 });
+        const mesh = new THREE.Mesh(geom, [sideMat, topMat, botMat]);
+        mesh.castShadow = true;
+        mesh.receiveShadow = false;
+        // store normalized chip color for robust comparisons (lowercase)
+        mesh.userData.chipColor = String(color).toLowerCase();
+        // ensure a stable default orientation (flat, no yaw)
+        mesh.rotation.set(0, 0, 0);
+        return mesh;
+      }
+
+      // lightweight chip physics state + helpers
+      const chips = []; // active chip objects: { mesh, velocity: THREE.Vector3, mass, radius, restitution, color, stackId }
+      const CHIP_RADIUS = CHIP_DIAMETER / 2;
+      const chipPhysics = {
+        gravity: -18.0,            // stronger fall so chips settle briskly
+        groundY: BASE_DECK_Y + CHIP_THICKNESS/2 + 0.001,
+        restitution: 0.25,         // bounciness
+        frictionGround: 0.70,      // horizontal damping on ground contact
+        frictionAir: 0.995,        // slight air drag
+        contactEpsilon: 0.0001,
+        // make snap distance large enough so subsequent chips at the same seat join the stack
+        stackSnapDistance: 0.80,   // max horizontal distance to snap into same stack (tweak)
+        stackSettleVel: 0.06,      // max horizontal speed to be considered settled
+        stackMaxHeight: 24         // safety cap on stack height
+      };
+
+      // Ensure stacks bookkeeping exists before spawnChip is used
+      // deterministic per-seat-per-color anchors so different-color stacks don't occupy the exact same X/Z.
+      const chipStacks = {}; // key -> { id, seat, anchor: Vector3, members: [], color }
+      let nextStackId = 1;
+
+      // stable color ordering and offset step for per-color anchors
+      const COLORS_ORDER = ['black','blue','green','red'];
+      // increase lateral spacing between color stacks
+      const COLOR_STACK_OFFSET = CHIP_DIAMETER * 1.1; // previously 0.66
+      // push stacks outward toward players
+      const FRONT_STACK_OFFSET = 1.8; // distance to push anchors toward player side (tweak as needed)
+
+function getStackKey(seat, color){
+  return `${seat}_${String(color).toLowerCase()}`;
+}
+
+function computeColorAnchor(seat, color){
+  const gY = chipPhysics.groundY;
+  // base seat position (player or dealer)
+  const base = (seat === 'dealer') ? dealerPosition.clone() : CHIPS_BETTING_CIRCLE_CENTER.clone();
+  // anchor lives on the ground plane
+  base.y = gY;
+
+  // center of table used to compute radial offset
+  const center = new THREE.Vector3(0, gY, 0);
+
+  // direction from center -> seat (XZ)
+  const dir = base.clone().sub(center);
+  dir.y = 0;
+  const dirLen = dir.length();
+
+  // move the anchor outward toward the seat (away from center / in front of the deck)
+  if(seat === 'dealer' && dirLen > 1e-4){
+    dir.normalize();
+    base.addScaledVector(dir, FRONT_STACK_OFFSET);
+  }
+
+  // compute lateral (perpendicular) direction in XZ plane so color lanes fan out around the seat
+  // perpendicular to dir: (-z, 0, x)
+  let perp = new THREE.Vector3(-dir.z, 0, dir.x);
+  if(perp.lengthSq() < 1e-6){
+    // fallback to world X
+    perp = new THREE.Vector3(1,0,0);
+  } else {
+    perp.normalize();
+  }
+
+  const col = String(color).toLowerCase();
+  const idx = Math.max(0, COLORS_ORDER.indexOf(col));
+  const mid = (COLORS_ORDER.length - 1) / 2;
+  const lateralShift = (idx - mid) * COLOR_STACK_OFFSET;
+
+  // apply lateral offset along the perpendicular so color stacks are spread left/right of seat direction
+  base.addScaledVector(perp, lateralShift);
+
+  return base;
+}
+
+// tiny per-chip jitter so stacked chips don't perfectly overlap — makes counts readable
+function getStackJitter(idx){
+  // base lateral steps so small stacks spread lightly; tuned relative to chip diameter
+  const JX = 0.03; // horizontal step
+  const JZ = 0.02; // depth step
+  // deterministic-ish pattern with small random variation to avoid exact overlap
+  const patternX = ((idx % 3) - 1) * JX;
+  const patternZ = ((Math.floor(idx / 3) % 2) - 0.5) * JZ;
+  const randX = (Math.random() - 0.5) * 0.01;
+  const randZ = (Math.random() - 0.5) * 0.008;
+  return { x: patternX + randX, z: patternZ + randZ };
+}
+
+// Normalize seat identifiers for consistent comparisons/keys
+function seatKey(s){
+  if(s === 'dealer') return 'dealer';
+  if(typeof s === 'number') return String(s);
+  if(typeof s === 'string') return s;
+  return String(s);
+}
+
+// Base seat key (maps split seats like '0_split' to their base '0')
+function seatBaseKey(s){
+  const k = seatKey(s);
+  if(typeof k === 'string' && k.includes('_split')) return String(k.split('_')[0]);
+  return k;
+}
+
+      function getOrCreateStack(seat, color){
+        const key = getStackKey(seat, color);
+        if(chipStacks[key]) return chipStacks[key];
+        const anchor = computeColorAnchor(seat, color);
+        const sid = nextStackId++;
+        chipStacks[key] = { id: sid, seat, anchor, members: [], color: String(color).toLowerCase() };
+        return chipStacks[key];
+      }
+
+      function spawnChip(color, seatIndex = 0){
+        // normalize color and seat
+        const col = String(color).toLowerCase();
+        const seat = (seatIndex === 'dealer') ? 'dealer' : (typeof seatIndex === 'number' ? seatIndex : 0);
+
+        // compute the seat anchor
+        const targetBase = (seat === 'dealer') ? dealerPosition.clone() : CHIPS_BETTING_CIRCLE_CENTER.clone();
+        const target = targetBase.clone(); // use seat anchor for stacking logic
+
+        // create chip mesh and add to scene immediately
+        const mesh = createChipMesh(col);
+        // spawn a little above to avoid immediate overlap artifacts then snap if we find a stack
+        mesh.position.set(target.x, chipPhysics.groundY + 0.08, target.z);
+        mesh.rotation.y = Math.random()*Math.PI*2;
+        scene.add(mesh);
+
+        // prepare chip state
+        const chipObj = {
+          mesh,
+          velocity: new THREE.Vector3(0,0,0),
+          mass: 1.0,
+          radius: CHIP_RADIUS,
+          restitution: chipPhysics.restitution,
+          color: col,
+          stackId: null,
+          id: `chip_${Date.now()}_${Math.random().toString(36).slice(2,6)}`
+        };
+
+        const gY = chipPhysics.groundY;
+        const snap = chipPhysics.stackSnapDistance;
+        const key = getStackKey(seat, col);
+
+        // If there's an existing stack for this seat+color, snap on top immediately
+        if(chipStacks[key]){
+          const s = chipStacks[key];
+          const idx = s.members.length;
+          const jitter = getStackJitter(idx);
+          chipObj.mesh.position.x = s.anchor.x + jitter.x;
+          chipObj.mesh.position.z = s.anchor.z + jitter.z;
+          chipObj.mesh.position.y = gY + idx * CHIP_THICKNESS + 0.0005; // tiny epsilon for z-fight
+          chipObj.velocity.set(0,0,0);
+          chipObj.stackId = s.id;
+          // canonical orientation for neat visual stack
+          chipObj.mesh.rotation.set(0, 0, 0);
+          s.members.push(chipObj);
+          chips.push(chipObj);
+          return;
+        }
+
+        // Otherwise attempt to find a nearby stack of same color (fallback across any seat)
+        for(const sk in chipStacks){
+          const s = chipStacks[sk];
+          if(s.color !== chipObj.color) continue;
+          const dx = target.x - s.anchor.x;
+          const dz = target.z - s.anchor.z;
+          const d = Math.hypot(dx, dz);
+          if(d <= snap){
+            const idx = s.members.length;
+            const jitter = getStackJitter(idx);
+            chipObj.mesh.position.x = s.anchor.x + jitter.x;
+            chipObj.mesh.position.z = s.anchor.z + jitter.z;
+            chipObj.mesh.position.y = gY + idx * CHIP_THICKNESS + 0.0005;
+            chipObj.velocity.set(0,0,0);
+            chipObj.stackId = s.id;
+            chipObj.mesh.rotation.set(0,0,0);
+            s.members.push(chipObj);
+            chips.push(chipObj);
+            return;
+          }
+        }
+
+        // No nearby stack: create a new seat+color stack anchored with a per-color offset
+        const stack = getOrCreateStack(seat, col);
+        chipObj.mesh.position.x = stack.anchor.x;
+        chipObj.mesh.position.z = stack.anchor.z;
+        chipObj.mesh.position.y = gY; // base on ground
+        chipObj.mesh.rotation.set(0, 0, 0);
+        chipObj.velocity.set(0,0,0);
+        chipObj.stackId = stack.id;
+        stack.members.push(chipObj);
+        chips.push(chipObj);
+      }
+
+      // In manageChipStacks replace cluster anchor creation with per-seat-per-color anchors:
+      function manageChipStacks(){
+        const gY = chipPhysics.groundY;
+        const snap = chipPhysics.stackSnapDistance;
+        const settleVel = chipPhysics.stackSettleVel;
+
+        // attempt to add settled single chips to existing seat+color stacks
+        for(const c of chips){
+          if(c.stackId !== null) continue; // already stacked
+          // only consider chips resting on ground and nearly settled
+          const velXZ = Math.hypot(c.velocity.x, c.velocity.z);
+          if(Math.abs(c.mesh.position.y - gY) > 0.02 || velXZ > settleVel) continue;
+
+          // try to find a stack of same color near any seat anchor
+          let foundStackKey = null;
+          for(const key in chipStacks){
+            const s = chipStacks[key];
+            if(s.color !== c.color) continue;
+            const dx = c.mesh.position.x - s.anchor.x;
+            const dz = c.mesh.position.z - s.anchor.z;
+            const d = Math.hypot(dx,dz);
+            if(d <= snap && Math.abs(c.mesh.position.y - (gY + s.members.length * CHIP_THICKNESS)) <= 0.12){
+              foundStackKey = key;
+              break;
+            }
+          }
+          if(foundStackKey !== null){
+            const s = chipStacks[foundStackKey];
+            c.stackId = s.id;
+            c.velocity.set(0,0,0);
+            s.members.push(c);
+            // snap chip to stack top precisely and align rotation
+            const idx = s.members.length - 1;
+            c.mesh.position.x = s.anchor.x;
+            c.mesh.position.z = s.anchor.z;
+            c.mesh.position.y = gY + idx * CHIP_THICKNESS + 0.0005;
+            c.mesh.rotation.set(0,0,0);
+            continue;
+          }
+        }
+
+        // Second: cluster nearby settled same-color chips into a new stack (anchor to nearest seat+color slot)
+        const unstacked = chips.filter(c => c.stackId === null && Math.abs(c.mesh.position.y - gY) <= 0.02 && Math.hypot(c.velocity.x, c.velocity.z) <= settleVel);
+        const used = new Set();
+        for(let i=0;i<unstacked.length;i++){
+          const a = unstacked[i];
+          if(used.has(a)) continue;
+          const cluster = [a];
+          used.add(a);
+          for(let j=i+1;j<unstacked.length;j++){
+            const b = unstacked[j];
+            if(used.has(b)) continue;
+            if(b.color !== a.color) continue;
+            const dx = b.mesh.position.x - a.mesh.position.x;
+            const dz = b.mesh.position.z - a.mesh.position.z;
+            const d = Math.hypot(dx,dz);
+            if(d <= snap){
+              cluster.push(b);
+              used.add(b);
+            }
+          }
+          if(cluster.length >= 2){
+            // Determine nearby seat (prefer player seats, else dealer)
+            let bestSeat = 'dealer';
+            let bestDist = Infinity;
+            for(let s=0;s<playerPositions.length;s++){
+              const d = Math.hypot(cluster[0].mesh.position.x - playerPositions[s].x, cluster[0].mesh.position.z - playerPositions[s].z);
+              if(d < bestDist){ bestDist = d; bestSeat = s; }
+            }
+            const dd = Math.hypot(cluster[0].mesh.position.x - dealerPosition.x, cluster[0].mesh.position.z - dealerPosition.z);
+            if(dd < bestDist){ bestDist = dd; bestSeat = 'dealer'; }
+
+            // Anchor now uses per-seat-per-color offset
+            const stack = getOrCreateStack(bestSeat, a.color);
+            // sort cluster by current y so bottom-most becomes base
+            cluster.sort((u,v)=> u.mesh.position.y - v.mesh.position.y);
+            cluster.forEach((cc, idx) => {
+              if(idx >= chipPhysics.stackMaxHeight) return;
+              cc.stackId = stack.id;
+              cc.velocity.set(0,0,0);
+              const jitter = getStackJitter(idx);
+              cc.mesh.position.x = stack.anchor.x + jitter.x;
+              cc.mesh.position.z = stack.anchor.z + jitter.z;
+              cc.mesh.position.y = gY + idx * CHIP_THICKNESS + 0.0005;
+              cc.mesh.rotation.set(0,0,0);
+              stack.members.push(cc);
+            });
+          }
+        }
+
+        // cleanup empty stacks
+        for(const key in Object.assign({}, chipStacks)){
+          const s = chipStacks[key];
+          if(!s.members || s.members.length === 0) delete chipStacks[key];
+        }
+      }
+
+      // Chip transfer animations
+      function getStackKeysForSeat(seat){
+        const keys = [];
+        for(const k in chipStacks){
+          try{ if(String(chipStacks[k].seat) === String(seat)) keys.push(k); }catch(e){}
+        }
+        return keys;
+      }
+
+      async function animateChipTransferBetweenSeats(fromSeat, toSeat, opts = {}){
+        const dur = opts.duration || 800;
+        const moved = [];
+        const fromKeys = getStackKeysForSeat(fromSeat);
+        for(const fk of fromKeys){
+          const stack = chipStacks[fk];
+          if(!stack || !Array.isArray(stack.members) || stack.members.length === 0) continue;
+          // clone members list
+          const members = stack.members.slice();
+          // iterate from top of stack -> bottom so top chips move first (prevents floating visuals)
+          for(let mi = members.length - 1; mi >= 0; mi--){
+            const chipObj = members[mi];
+            try{
+              const color = chipObj.color || (chipObj.mesh && chipObj.mesh.userData && chipObj.mesh.userData.chipColor) || 'black';
+              const destStack = getOrCreateStack(toSeat, color);
+              const targetIndex = destStack.members.length;
+              const target = destStack.anchor.clone();
+              const jitter = getStackJitter(targetIndex);
+              target.x += jitter.x;
+              target.z += jitter.z;
+              // If moving chips to the dealer, nudge the visual target further (opts.shift:x.x)
+              const extraShift = (opts && typeof opts.shift === 'number') ? opts.shift : 3.2;
+              try{
+                if(String(destStack.seat) === 'dealer'){
+                  const center = new THREE.Vector3(0, chipPhysics.groundY, 0);
+                  const dir = dealerPosition.clone().sub(center);
+                  dir.y = 0;
+                  if(dir.lengthSq() > 1e-6) dir.normalize();
+                  target.addScaledVector(dir, extraShift);
+                }
+              }catch(e){ /* ignore if positions unavailable */ }
+              const targetY = chipPhysics.groundY + targetIndex * CHIP_THICKNESS + 0.0005;
+              // animate chip mesh to target
+              await tweenTo(chipObj, { x: target.x, y: targetY, z: target.z }, dur);
+              // finalize: remove from old stack and add to dest stack
+              try{
+                const idx = stack.members.indexOf(chipObj);
+                if(idx !== -1) stack.members.splice(idx,1);
+              }catch(e){}
+              chipObj.stackId = destStack.id;
+              destStack.members.push(chipObj);
+              // stabilize final transform
+              try{ chipObj.mesh.rotation.set(0,0,0); chipObj.mesh.position.set(target.x, targetY, target.z); }catch(e){}
+              moved.push({ chip: chipObj, from: fk, to: destStack });
+            }catch(e){ console.warn('chip transfer failed', e); }
+          }
+        }
+        return moved;
+      }
+
+      // Interpret round results and animate chips accordingly
+      async function animateChipOutcome(results){
+        if(!Array.isArray(results) || results.length === 0) return;
+        // perform transfers in parallel per-seat but await all to finish
+        const tasks = [];
+        for(const r of results){
+          const seat = r.seat;
+          const text = String(r.resultText || '').toLowerCase();
+          if(text.includes('player wins')){
+            // dealer pays player
+            tasks.push(animateChipTransferBetweenSeats('dealer', seat));
+          } else if(text.includes('dealer wins')){
+            // player pays dealer
+            tasks.push(animateChipTransferBetweenSeats(seat, 'dealer'));
+          } else {
+            // push/tie: leave chips as-is
+          }
+        }
+        try{ await Promise.all(tasks); }catch(e){ console.warn('chip outcome animation failed', e); }
+      }
+
+      // hookup chip buttons immediately
+      try{
+        document.getElementById('chipBlackBtn').addEventListener('click', ()=> spawnChip('black', 0));
+        document.getElementById('chipBlueBtn').addEventListener('click',  ()=> spawnChip('blue', 0));
+        document.getElementById('chipGreenBtn').addEventListener('click', ()=> spawnChip('green', 0));
+        document.getElementById('chipRedBtn').addEventListener('click',   ()=> spawnChip('red', 0));
+      }catch(e){
+        console.warn('Chip button binding failed', e);
+      }
+
+      // Player action buttons: Hit / Stand / Split / Double
+      const hitBtn = document.getElementById('hitBtn');
+      const standBtn = document.getElementById('standBtn');
+      const splitBtn = document.getElementById('splitBtn');
+      const doubleBtn = document.getElementById('doubleBtn');
+      let currentPlayerSeat = 0; // single-player table default
+      let waitingForPlayer = false;
+      // support multiple player hands after split
+      let playerHands = [0];
+      let currentHandIndex = 0;
+      // Tracks whether a specific hand can still double this turn.
+      const canDoubleByHand = {};
+
+      function clearDoubleEligibility(){
+        for(const k in canDoubleByHand) delete canDoubleByHand[k];
+      }
+
+      function setDoubleEligibility(seat, canDouble){
+        canDoubleByHand[seatKey(seat)] = !!canDouble;
+      }
+
+      function enablePlayerControls(enabled){
+        if(!hitBtn || !standBtn || !splitBtn || !doubleBtn) return;
+        hitBtn.disabled = !enabled;
+        standBtn.disabled = !enabled;
+        // split only when eligible
+        splitBtn.disabled = !enabled || !checkSplitEligibility(currentPlayerSeat);
+        // double only on the first two cards of the active hand
+        doubleBtn.disabled = !enabled || !checkDoubleEligibility(currentPlayerSeat);
+      }
+
+      function checkDoubleEligibility(seat){
+        const key = seatKey(seat);
+        const hand = dealtCards.filter(d => seatKey(d.seat) === key);
+        const hasFlag = Object.prototype.hasOwnProperty.call(canDoubleByHand, key);
+        const canDouble = hasFlag ? !!canDoubleByHand[key] : true;
+        return hand.length === 2 && canDouble;
+      }
+
+      function checkSplitEligibility(seat){
+        // Use global seatBaseKey so numeric, string and split-seat forms compare to same base
+        const norm = seatBaseKey(seat);
+        const hand = dealtCards.filter(d=> seatBaseKey(d.seat) === norm );
+        if(hand.length !== 2) return false;
+        const id0 = String(hand[0].id || '');
+        const id1 = String(hand[1].id || '');
+        const parts0 = id0.split('-');
+        const parts1 = id1.split('-');
+        const suit0 = parts0.length > 1 ? parts0[0] : '';
+        const suit1 = parts1.length > 1 ? parts1[0] : '';
+        const rank0 = parts0.length ? parts0[parts0.length-1] : '';
+        const rank1 = parts1.length ? parts1[parts1.length-1] : '';
+        // Allow split when same rank OR same suit
+        return (rank0 === rank1) || (suit0 === suit1);
+      }
+
+      async function setupPlayerTurn(){
+        // reset to single-hand by default
+        playerHands = [0]; currentHandIndex = 0;
+        currentPlayerSeat = playerHands[currentHandIndex];
+        clearDoubleEligibility();
+        setDoubleEligibility(currentPlayerSeat, true);
+        waitingForPlayer = true;
+        enablePlayerControls(true);
+        try{ document.getElementById('log').textContent = 'Player turn — choose Hit, Stand, Split, or Double'; }catch(e){}
+      }
+
+      async function finishPlayerTurn(){
+        // if multiple hands due to split, advance to next hand instead of resolving dealer
+        enablePlayerControls(false);
+        waitingForPlayer = false;
+        if(playerHands && currentHandIndex < playerHands.length - 1){
+          // advance to next hand
+          currentHandIndex++;
+          currentPlayerSeat = playerHands[currentHandIndex];
+          waitingForPlayer = true;
+          enablePlayerControls(true);
+          try{ document.getElementById('log').textContent = `Playing split hand ${currentHandIndex + 1} of ${playerHands.length}`; }catch(e){}
+          return;
+        }
+
+        // no more player hands: reveal dealer hole and play dealer
+        waitingForPlayer = false;
+        enablePlayerControls(false);
+        if(dealerCards.length >= 2){
+          const hole = dealerCards[1];
+          if(hole && hole.mesh){
+            try{
+              const speed = parseFloat(document.getElementById('speed').value) || 1;
+              const duration = 420 / speed;
+              await tweenRotationToEuler(hole.mesh, new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ'), duration);
+              hole.mesh.quaternion.setFromEuler(new THREE.Euler(-Math.PI/2,0,0,'XYZ'));
+              hole.faceUp = true;
+              await repositionDealerCards(Math.max(180, duration/2));
+            }catch(e){ console.warn('finishPlayerTurn: reveal failed', e); }
+          }
+        }
+        try{ await dealerPlay(); }catch(e){ console.error('dealerPlay error', e); }
+      }
+
+      async function playerHit(){
+        if(!waitingForPlayer) return;
+        const seat = currentPlayerSeat;
+        setDoubleEligibility(seat, false);
+        const speed = parseFloat(document.getElementById('speed').value) || 1;
+        const duration = 380 / speed;
+        const pair = safePopCardMeshAndMeta();
+        if(!pair) return;
+        const o = pair.meshObj;
+        if(!o) return;
+        const existingForSeat = dealtCards.filter(d=> seatKey(d.seat) === seatKey(seat)).length;
+        // support split seats (e.g. '0_split') by falling back to playerPositions[0]
+        const base = (typeof playerPositions[seat] !== 'undefined') ? playerPositions[seat].clone() : playerPositions[0].clone();
+        base.y = BASE_DECK_Y;
+        base.x += (Math.random() - 0.5) * 0.02;
+        base.z += (Math.random() - 0.5) * 0.02;
+        o.seat = seat; o._seatIndex = existingForSeat;
+        const targetEuler = new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ');
+        const finalY = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+        await Promise.all([
+          tweenTo(o, {x: base.x, y: finalY, z: base.z}, duration, t=>1-Math.pow(1-t,3)),
+          tweenRotationToEuler(o.mesh, targetEuler, duration)
+        ]);
+        o.mesh.position.set(base.x, finalY, base.z);
+        o.mesh.quaternion.setFromEuler(targetEuler);
+        o.faceUp = true;
+        o._baseOrigPosition = base.clone();
+        o.origPosition = o._baseOrigPosition.clone(); o.origPosition.y = finalY;
+        o.origQuaternion = o.mesh.quaternion.clone();
+        try{ playDealAt(o.mesh); }catch(e){}
+        dealtCards.push(o);
+        try{ layoutPlayerHand(seat, Math.max(180, Math.floor(duration/4))); }catch(e){}
+        // evaluate bust/continue
+        const ranks = getSeatRanks(seat);
+        const total = computeHandTotal(ranks);
+        if(total > 21){
+          try{ document.getElementById('log').textContent = `Player busted (${total})`; }catch(e){}
+          await wait(300);
+          await finishPlayerTurn();
+        } else {
+          // update split eligibility after hit
+          splitBtn.disabled = !checkSplitEligibility(seat);
+          doubleBtn.disabled = !checkDoubleEligibility(seat);
+        }
+      }
+
+      async function playerDoubleDown(){
+        if(!waitingForPlayer) return;
+        const seat = currentPlayerSeat;
+        const startSeatKey = seatKey(seat);
+        if(!checkDoubleEligibility(seat)) return;
+        const beforeCount = dealtCards.filter(d => seatKey(d.seat) === seatKey(seat)).length;
+        try{ document.getElementById('log').textContent = 'Player doubles down'; }catch(e){}
+        await playerHit();
+        const afterCount = dealtCards.filter(d => seatKey(d.seat) === seatKey(seat)).length;
+        // Double down draws exactly one card, then the hand must stand.
+        // If the hand advanced (e.g., bust moved to next split hand), do not auto-stand the next hand.
+        if(waitingForPlayer && seatKey(currentPlayerSeat) === startSeatKey && afterCount > beforeCount){
+          await wait(120);
+          await playerStand();
+        }
+      }
+
+      async function playerStand(){
+        if(!waitingForPlayer) return;
+        setDoubleEligibility(currentPlayerSeat, false);
+        try{ document.getElementById('log').textContent = 'Player stands'; }catch(e){}
+        await wait(120);
+        await finishPlayerTurn();
+      }
+
+      async function playerSplit(){
+        if(!checkSplitEligibility(currentPlayerSeat)) return;
+        // find two cards for current seat (use normalized seatKey)
+        const hand = dealtCards.filter(d => seatKey(d.seat) === seatKey(currentPlayerSeat));
+        if(hand.length !== 2) return;
+        // create a unique split seat id
+        const newSeat = `${currentPlayerSeat}_split`;
+
+        // reposition the original two cards slightly apart
+        const base = (typeof playerPositions[currentPlayerSeat] !== 'undefined') ? playerPositions[currentPlayerSeat].clone() : playerPositions[0].clone();
+        // direction toward the dealer so the split card moves toward dealerPosition
+        const dealerDir = dealerPosition.clone().sub(base);
+        dealerDir.y = 0;
+        if(dealerDir.lengthSq() < 1e-6){
+          // fallback to away-from-center behavior if dealerDir is degenerate
+          const center = new THREE.Vector3(0, BASE_DECK_Y, 0);
+          dealerDir.copy(base.clone().sub(center));
+          dealerDir.y = 0;
+          if(dealerDir.lengthSq() < 1e-6) dealerDir.set(0,0,1); else dealerDir.normalize();
+        } else {
+          dealerDir.normalize();
+        }
+        const FORWARD_SHIFT = CARD_W * 1.5; // how far to shift the split card toward dealer (closer)
+        // original card remains at the player's base; the split card is placed toward the dealer
+        const origPos = base.clone(); origPos.y = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+        const frontPos = base.clone(); frontPos.addScaledVector(dealerDir, FORWARD_SHIFT); frontPos.y = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+
+        // assign cards to each split
+        const cardA = hand[0];
+        const cardB = hand[1];
+        cardA.seat = currentPlayerSeat; cardA._seatIndex = 0;
+        cardB.seat = newSeat; cardB._seatIndex = 0;
+
+        // animate separation: original card stays split card moves to front
+        try{
+          await Promise.all([
+            tweenTo(cardA, { x: origPos.x, y: origPos.y, z: origPos.z }, 220),
+            tweenRotationToEuler(cardA.mesh, new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ'), 200),
+            tweenTo(cardB, { x: frontPos.x, y: frontPos.y, z: frontPos.z }, 260),
+            tweenRotationToEuler(cardB.mesh, new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ'), 240)
+          ]);
+        }catch(e){ console.warn('split: reposition failed', e); }
+
+        // update their orig/base positions
+        cardA._baseOrigPosition = origPos.clone(); cardA.origPosition = cardA._baseOrigPosition.clone();
+        cardB._baseOrigPosition = frontPos.clone(); cardB.origPosition = cardB._baseOrigPosition.clone();
+
+        // add the new split seat to playerHands and set currentHandIndex to the first hand
+        playerHands = [currentPlayerSeat, newSeat];
+        currentHandIndex = 0;
+        currentPlayerSeat = playerHands[currentHandIndex];
+        // Enable double independently for both split hands.
+        setDoubleEligibility(playerHands[0], true);
+        setDoubleEligibility(playerHands[1], true);
+
+        // draw one replacement card for each hand (original + split)
+        // Animate the incoming cards so the split visually matches a dealt card
+        const splitDrawPromises = [];
+        const targetEuler = new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ');
+        for(const targetSeat of playerHands){
+          const pair = safePopCardMeshAndMeta();
+          if(!pair) continue;
+          const o = pair.meshObj;
+          if(!o) continue;
+          const existingForSeat = dealtCards.filter(d=> seatKey(d.seat) === seatKey(targetSeat)).length;
+          o.seat = targetSeat; o._seatIndex = existingForSeat;
+          // compute destination position (origPos for original hand, frontPos for split hand)
+          const dest = (targetSeat === currentPlayerSeat) ? origPos.clone() : frontPos.clone();
+          dest.x += 0.02;
+          dest.y = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+          // ensure card shows face-up when placed
+          o.faceUp = true;
+          // animate movement + rotation, then finalize state
+          splitDrawPromises.push(Promise.all([
+            tweenTo(o, { x: dest.x, y: dest.y, z: dest.z }, 360),
+            tweenRotationToEuler(o.mesh, targetEuler, 340)
+          ]).then(()=>{
+            try{
+              o.mesh.position.set(dest.x, dest.y, dest.z);
+              o.mesh.quaternion.setFromEuler(targetEuler);
+              o._baseOrigPosition = dest.clone();
+              o.origPosition = o._baseOrigPosition.clone();
+              o.origQuaternion = o.mesh.quaternion.clone();
+              dealtCards.push(o);
+            }catch(e){
+              console.warn('split draw finalize failed', e);
+              dealtCards.push(o);
+            }
+          }).catch(e=>{ console.warn('split draw animation failed', e); dealtCards.push(o); }));
+        }
+        try{ await Promise.all(splitDrawPromises); }catch(e){ /* already logged */ }
+        // reflow both hands (original + split) so cards are spaced
+        try{ await layoutPlayerHand(currentPlayerSeat, 260); }catch(e){}
+        try{ await layoutPlayerHand(newSeat, 260); }catch(e){}
+
+        // update controls to start playing first split hand
+        waitingForPlayer = true;
+        enablePlayerControls(true);
+        splitBtn.disabled = true;
+        try{ document.getElementById('log').textContent = 'Split performed — play first hand'; }catch(e){}
+      }
+
+      // attach handlers
+      try{
+        if(hitBtn) hitBtn.addEventListener('click', ()=> playerHit());
+        if(standBtn) standBtn.addEventListener('click', ()=> playerStand());
+        if(splitBtn) splitBtn.addEventListener('click', ()=> playerSplit());
+        if(doubleBtn) doubleBtn.addEventListener('click', ()=> playerDoubleDown());
+      }catch(e){ console.warn('Player control binding failed', e); }
+
+      async function loadAllTextures(){
+        textures = {};
+        const promises = deckIds.map(c=>{
+          const path = `cards/${c.suit}/${c.rank}.webp`;
+          return new Promise(res=>{
+            loader.load(path, tex => { try{ tex.flipY = true }catch(e){}; textures[c.id]=tex; res(true); }, undefined, ()=>{ res(false); });
+          });
+        });
+        const backP = new Promise(res=>{ loader.load('cards//backs/Blue.webp', tex=>{ try{ tex.flipY = true }catch(e){}; backTexture = tex; res(true); }, undefined, ()=>{ backTexture=null; res(false); }); });
+        await Promise.all([...promises, backP]);
+        // ensure loaded color textures are treated as sRGB so lighting behaves correctly
+        //Object.values(textures).forEach(t => { try{ t.encoding = THREE.SRGBColorSpace; t.needsUpdate = true; }catch(e){} });
+        Object.values(textures).forEach(t => { try{ t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; }catch(e){} });
+
+        //try{ if(backTexture) { backTexture.encoding = THREE.SRGBColorSpace; backTexture.needsUpdate = true; } }catch(e){}
+        try{ if(backTexture) { backTexture.colorSpace = THREE.SRGBColorSpace; backTexture.needsUpdate = true; } }catch(e){}
+
+        document.getElementById('log').textContent = `Loaded ${Object.keys(textures).length} card textures. Back: ${!!backTexture}`;
+        console.log('loaded textures:', Object.keys(textures).length, 'back:', !!backTexture);
+      }
+
+      // card objects in scene
+      const cardObjects = [];
+      const dealtCards = [];
+      const dealerCards = [];
+      let dealtFanned = false;
+
+      // safely dispose a card object
+      function disposeCard(o){
+        if(!o || !o.mesh) return;
+        try{
+          if(o.mesh.parent) o.mesh.parent.remove(o.mesh);
+        }catch(e){}
+        // dispose geometry
+        if(o.mesh.geometry && o.mesh.geometry.dispose) o.mesh.geometry.dispose();
+        // dispose materials and maps
+        const mats = Array.isArray(o.mesh.material) ? o.mesh.material : [o.mesh.material];
+        // dispose any cloned maps explicitly created for this card
+        if(o._maps && Array.isArray(o._maps)){
+          o._maps.forEach(map=>{
+            try{ if(map && map.dispose) map.dispose(); }catch(e){}
+          });
+        }
+        mats.forEach(m=>{
+          try{ if(m) m.dispose(); }catch(e){}
+        });
+      }
+
+      function makeCardObject(cardId){
+        // clone textures per card so adjustments don't affect other card meshes
+        const baseFront = textures[cardId] || null;
+        const baseBack = backTexture || null;
+        const frontTex = (baseFront && baseFront.clone) ? baseFront.clone() : placeholderTexture(cardId);
+        const backTex = (baseBack && baseBack.clone) ? baseBack.clone() : placeholderTexture('back');
+        // ensure cloned textures use the correct vertical orientation (flipY true) to avoid mirrored appearance
+        try{ frontTex.flipY = true; backTex.flipY = true; }catch(e){}
+        // Ensure textures are not mirrored: use ClampToEdgeWrapping and default repeat/offset.
+        try{
+          frontTex.wrapS = THREE.ClampToEdgeWrapping;
+          frontTex.repeat.x = 1;
+          frontTex.offset.x = 0;
+        }catch(e){}
+        try{
+          backTex.wrapS = THREE.ClampToEdgeWrapping;
+          backTex.repeat.x = 1;
+          backTex.offset.x = 0;
+        }catch(e){}
+        //try{ frontTex.encoding = THREE.SRGBColorSpace; backTex.encoding = THREE.SRGBColorSpace; }catch(e){}
+        try{ frontTex.colorSpace = THREE.SRGBColorSpace; backTex.colorSpace = THREE.SRGBColorSpace; }catch(e){}
+
+        // Improve sampling to reduce texture edge bleeding.
+        try{
+          const maxAniso = renderer.capabilities.getMaxAnisotropy();
+          frontTex.anisotropy = maxAniso;
+          backTex.anisotropy = maxAniso;
+          // use linear filters without mipmaps to keep alpha stable
+          frontTex.minFilter = THREE.LinearFilter;
+          frontTex.magFilter = THREE.LinearFilter;
+          backTex.minFilter = THREE.LinearFilter;
+          backTex.magFilter = THREE.LinearFilter;
+          frontTex.generateMipmaps = false;
+          backTex.generateMipmaps = false;
+        }catch(e){}
+        frontTex.needsUpdate = true; backTex.needsUpdate = true;
+        const mesh = createCardMesh(frontTex, backTex);
+        // mesh geometry is already translated so origin == card bottom
+        mesh.userData.cardId = cardId;
+        scene.add(mesh);
+        // store cloned maps for later disposal
+        const obj = {mesh: mesh, id:cardId, faceUp:false, anim: null, _maps: [frontTex, backTex]};
+        return obj;
+      }
+
+      function layoutDeckAt(x=DECK_CENTER.x, y=undefined, z=DECK_CENTER.z){
+        if(y === undefined) y = BASE_DECK_Y;
+         // remove & dispose existing card meshes
+         cardObjects.forEach(o=>{ disposeCard(o); }); cardObjects.length=0;
+         for(let i=0;i<deck.length;i++){
+           const id = deck[i].id;
+           const obj = makeCardObject(id);
+           // tiny per-card Y offset avoids z-fighting while keeping the stack flush.
+           obj.mesh.position.set(x, y + CARD_T/2 + i * STACK_OFFSET, z);
+           // ensure cards higher in the stack draw after lower ones (top-most renders last)
+           obj.mesh.renderOrder = i;
+           // bias polygonOffsetUnits per-stack to avoid z-fighting when faces are nearly coplanar
+           try{
+             const mats = Array.isArray(obj.mesh.material) ? obj.mesh.material : [obj.mesh.material];
+             const baseUnits = 1.0;
+             const unitStep = 0.6; // increase per-card bias
+             // bias increases with i so higher cards get larger polygonOffsetUnits
+             mats.forEach(m => { try{ if(m && m.polygonOffset){ m.polygonOffsetUnits = baseUnits + i * unitStep; m.polygonOffsetFactor = 0.5; } }catch(e){}; });
+           }catch(e){}
+           // store a stable stack index (higher index == higher in the stack)
+           obj.mesh.userData.stackIndex = i;
+           const mats = Array.isArray(obj.mesh.material) ? obj.mesh.material : [obj.mesh.material];
+           mats.forEach(m => { try{ m.depthWrite = true; }catch(e){}; });
+           // ensure deck cards lie flat with the back face up (face-down on the table)
+           // match the same orientation used when dealing so the back texture faces upward.
+           obj.mesh.rotation.set(-Math.PI/2, Math.PI, 0);
+           obj.faceUp = false;
+           obj.mesh.scale.set(1,1,1);
+           cardObjects.push(obj);
+         }
+       }
+
+      function tweenTo(obj, props, duration=600, easing=(t=>(--t)*t*t+1), onComplete){
+        const startVals = {}, deltas = {};
+        const mesh = obj.mesh;
+        for(const k in props){
+          if(mesh.position && mesh.position[k] !== undefined){ startVals[k] = mesh.position[k]; }
+          else if(mesh.rotation && mesh.rotation[k] !== undefined){ startVals[k] = mesh.rotation[k]; }
+          else if(mesh.scale && mesh.scale.x !== undefined){ startVals[k] = mesh.scale.x; }
+          else { startVals[k] = 0; }
+          deltas[k] = props[k] - startVals[k];
+        }
+        const t0 = performance.now();
+        return new Promise(resolve=>{
+          (function tick(now){
+            const p = Math.min(1,(now - t0)/duration);
+            const e = easing(p);
+            for(const k in props){
+              if(mesh.position && mesh.position[k] !== undefined) mesh.position[k] = startVals[k] + deltas[k]*e;
+              else if(mesh.rotation && mesh.rotation[k] !== undefined) mesh.rotation[k] = startVals[k] + deltas[k]*e;
+              else if(mesh.scale && mesh.scale.x !== undefined) mesh.scale.setScalar(startVals[k] + deltas[k]*e);
+            }
+            if(p < 1) requestAnimationFrame(tick);
+            else {
+              if(onComplete) onComplete();
+              resolve();
+            }
+          })(performance.now());
+        });
+      }
+
+      function tweenRotationToEuler(mesh, targetEuler, duration=400, easing=(t=>t)){
+        // ensure Euler order is explicit
+        targetEuler = new THREE.Euler(targetEuler.x, targetEuler.y, targetEuler.z, targetEuler.order || 'XYZ');
+        const targetQ = new THREE.Quaternion().setFromEuler(targetEuler);
+        const startQ = mesh.quaternion.clone();
+        const t0 = performance.now();
+        return new Promise(resolve=>{
+          (function tick(now){
+            const p = Math.min(1,(now - t0)/duration);
+            const e = easing(p);
+            // use instance slerp (Spherical Linear Interpolation)
+            mesh.quaternion.copy(startQ).slerp(targetQ, e);
+            if(p < 1) requestAnimationFrame(tick);
+            else {
+              // snap exactly to target
+              mesh.quaternion.copy(targetQ);
+              mesh.rotation.setFromQuaternion(mesh.quaternion, 'XYZ');
+              resolve();
+            }
+          })(performance.now());
+        });
+      }
+
+      async function visualShuffle(){
+        const speed = parseFloat(document.getElementById('speed').value) || 1;
+        const duration = 600 / speed;
+        // scatter effect
+        cardObjects.forEach((o, i)=>{
+          const tx = (Math.random()-0.5)*8;
+          // ensure scatter Y stays above the ground using BASE_DECK_Y
+          const ty = BASE_DECK_Y + 0.2 + Math.random()*2;
+          const tz = (Math.random()-0.5)*6;
+          tweenTo(o, {x:tx, y:ty, z:tz}, duration);
+          o.mesh.rotation.y = Math.random()*Math.PI*2;
+        });
+        await wait(duration+80);
+        shuffleArray(deck);
+        //layoutDeckAt(0, 0.5, 0);
+        layoutDeckAt();
+      }
+
+      function computePlayerPositions(n, opts = {}){
+        const arcDeg = opts.arcDeg !== undefined ? opts.arcDeg : 180; // semicircle
+        const radius = opts.radius !== undefined ? opts.radius : 11.5;
+        // optional boost factor to push inner seats outward (useful for 4-player tables)
+        const innerBoost = opts.innerBoost !== undefined ? opts.innerBoost : 1.3;
+        const center = opts.center !== undefined ? opts.center : new THREE.Vector3(0, BASE_DECK_Y, 0);
+        const positions = [];
+        if(n <= 1){
+          positions.push(new THREE.Vector3(center.x, BASE_DECK_Y, center.z - radius));
+          return positions;
+        }
+        const startDeg = -arcDeg/2;
+        const step = arcDeg / (n - 1);
+        // identify inner indices for even n (e.g. for 4 -> indices 1 and 2)
+        const innerLeft = Math.floor(n/2) - 1;
+        const innerRight = Math.floor(n/2);
+        for(let i=0;i<n;i++){
+          const deg = startDeg + i*step;
+          const rad = deg * Math.PI / 180;
+          // apply boost to inner seats to increase separation
+          const useRadius = (i === innerLeft || i === innerRight) ? radius * innerBoost : radius;
+          const x = center.x + Math.sin(rad) * useRadius;
+          const z = center.z - Math.cos(rad) * useRadius; // away from dealer
+          positions.push(new THREE.Vector3(x, BASE_DECK_Y, z));
+        }
+        return positions;
+      }
+
+     // compute a dynamic dealer spacing based on card width, number of cards and camera distance.
+     function computeDealerSpacing(count){
+       // base on card width so spacing is never smaller than the card footprint.
+       // Use CARD_W + small margin to ensure cards don't touch when fanned.
+       const base = Math.max(CARD_W + 0.12, 1.0);
+       // extra per additional card (so 1-2 cards still separate)
+       const perCard = 0.45;
+       // camera factor: if camera is far, increase spacing a bit
+       const camFactor = (camera && camera.position) ? (1 + Math.max(0, (camera.position.distanceTo(new THREE.Vector3()) - 10)) * 0.02) : 1;
+       // compute and clamp to a sensible max to avoid exploding spacing
+       const spacing = Math.min(3.2, (base + Math.max(0, count - 1) * perCard) * camFactor);
+       return spacing;
+     }
+
+      // single-player table: move the player further forward (increase center.z) so they don't merge with dealer stack
+      const playerPositions = computePlayerPositions(1, { arcDeg: 180, radius: 6.0, center: new THREE.Vector3(0, BASE_DECK_Y, 14), innerBoost: 1.0 });
+
+      // move dealer slightly further back and increase separation from player
+      const dealerPosition = new THREE.Vector3(0, BASE_DECK_Y, -6.0);
+ 
+      // seat tracking for dealing sequence so multiple rounds assign seats correctly
+      const seatCount = playerPositions.length;
+      let nextSeatIndex = 0;
+      // Odds UI elements (one per seat)
+      const oddsContainer = document.getElementById('oddsContainer');
+      const oddsEls = [];
+      const oddsCache = []; // per-seat cache: { handSig, pct, lastComputed }
+      const ODDS_THROTTLE_MS = 700;
+      const MONTE_CARLO_TRIALS = 400; // tuned for responsiveness
+      function createOddsUI(){
+        oddsContainer.innerHTML = '';
+        oddsEls.length = 0;
+        oddsCache.length = 0;
+        for(let s=0;s<seatCount;s++){
+          const el = document.createElement('div');
+          el.className = 'oddsLabel';
+          el.textContent = 'Odds: -- %';
+          oddsContainer.appendChild(el);
+          oddsEls.push(el);
+          oddsCache.push({handSig:'', pct:0, lastComputed:0});
+        }
+      }
+
+      // helper: shuffle array in-place (Fisher-Yates)
+      function shuffleInPlace(a){
+        for(let i=a.length-1;i>0;i--){
+          const j = Math.floor(Math.random()*(i+1));
+          const t = a[i]; a[i]=a[j]; a[j]=t;
+        }
+      }
+
+      // compute dealer best total with flexible aces
+      function computeBestTotalForRanks(rankList){
+        let total=0, aces=0;
+        for(const r of rankList){
+          if(r === 'ace'){ aces++; total += 1; }
+          else if(r === 'jack' || r === 'queen' || r === 'king'){ total += 10; }
+          else { const n = parseInt(r,10); total += isNaN(n)?0:n; }
+        }
+        // try to promote aces to 11 where possible
+        for(let i=0;i<aces;i++){
+          if(total + 10 <= 21) total += 10;
+        }
+        return total;
+      }
+
+      // simulate one dealer sequence given an array of ranks (deckRemainder as strings)
+      function simulateDealerTotal(deckRanks){
+        // draw first two cards
+        let idx = 0;
+        const dcards = [];
+        dcards.push(deckRanks[idx++]);
+        dcards.push(deckRanks[idx++]);
+        let total = computeBestTotalForRanks(dcards);
+        while(total < 17 && idx < deckRanks.length){
+          dcards.push(deckRanks[idx++]);
+          total = computeBestTotalForRanks(dcards);
+        }
+        return total;
+      }
+
+      // Monte Carlo: probability player wins
+      function estimateWinProbability(playerRanks, deckRemainingRanks, trials, dealerUpRank){
+         if(!deckRemainingRanks || deckRemainingRanks.length === 0) return 0;
+         const playerTotal = computeBestTotalForRanks(playerRanks);
+         if(playerTotal > 21) return 0;
+         const playerIsBlackjack = (playerRanks.length === 2 && playerTotal === 21);
+         let wins = 0;
+         let performed = 0; // actual simulated trials (skip trials when deck insufficient)
+
+         for(let t=0;t<trials;t++){
+           // copy remaining deck ranks for this trial
+           const deckCopy = deckRemainingRanks.slice();
+
+           // defensively remove the known visible cards from the simulation pool:
+           // - remove one occurrence for each rank present in the player's hand
+           // - remove one occurrence of the dealer upcard (if provided)
+           if(Array.isArray(playerRanks)){
+             for(const r of playerRanks){
+               const idx = deckCopy.indexOf(r);
+               if(idx !== -1) deckCopy.splice(idx, 1);
+             }
+           }
+           if(dealerUpRank){
+             const idx = deckCopy.indexOf(dealerUpRank);
+             if(idx !== -1) deckCopy.splice(idx, 1);
+           }
+
+           // if not enough cards remain to form the dealer's initial two cards, skip this trial
+           if(dealerUpRank){
+             if(deckCopy.length < 1) continue; // need at least one hole card
+           } else {
+             if(deckCopy.length < 2) continue; // need two cards for dealer
+           }
+
+           // shuffle and perform this trial
+           shuffleInPlace(deckCopy);
+           const dealerRanks = [];
+           if(dealerUpRank){
+             dealerRanks.push(dealerUpRank);
+             dealerRanks.push(deckCopy.shift());
+           } else {
+             dealerRanks.push(deckCopy.shift());
+             dealerRanks.push(deckCopy.shift());
+           }
+
+           performed++;
+           const dealerTotalInitial = computeBestTotalForRanks(dealerRanks);
+
+           // check blackjack cases
+           if(playerIsBlackjack && dealerRanks.length === 2 && dealerTotalInitial === 21){
+             // push -> no win
+             continue;
+           }
+           if(playerIsBlackjack && dealerTotalInitial !== 21){
+             wins++;
+             continue;
+           }
+
+           // simulate dealer draws from the remaining deckCopy (now already shuffled)
+           let dealerTotal = dealerTotalInitial;
+           while(dealerTotal < 17 && deckCopy.length){
+             dealerRanks.push(deckCopy.shift());
+             dealerTotal = computeBestTotalForRanks(dealerRanks);
+           }
+           const dealerBust = dealerTotal > 21;
+           if(dealerBust){ wins++; continue; }
+           if(playerTotal > dealerTotal) wins++;
+           // ties are pushes -> not counted
+         }
+
+         // if no trials could be performed due to insufficient deck size, return 0
+         if(performed === 0) return 0;
+         return Math.round((wins / performed) * 100);
+       }
+ 
+      // assemble ranks array for a seat's current hand
+      function getSeatRanks(seat){
+        const allDealt = getDealtCards() || [];
+        const key = seatKey(seat);
+        const hand = allDealt.filter(o => seatKey(o.seat) === key);
+        const ranks = hand.map(o => {
+          if(!o.id) return null;
+          const parts = String(o.id).split('-');
+          return parts[parts.length-1];
+        }).filter(Boolean);
+        return ranks;
+      }
+
+      // produce a simple ranks array for the remaining deck
+      function getRemainingDeckRanks(){
+        return deck.map(c => c.rank);
+      }
+
+      // compute best total for a hand (Aces as 1 or 11)
+      function computeHandTotal(rankList){
+        let total = 0, aces = 0;
+        for(const r of rankList){
+          if(r === 'ace'){ aces++; total += 1; }
+          else if(r === 'jack' || r === 'queen' || r === 'king'){ total += 10; }
+          else { const n = parseInt(r,10); total += isNaN(n)?0:n; }
+        }
+        // upgrade some aces from 1 to 11 where possible
+        for(let i=0;i<aces;i++){
+          if(total + 10 <= 21) total += 10;
+        }
+        return total;
+      }
+
+      // estimate win probability for a seat using Monte Carlo (cached/throttled)
+      function chanceWinForSeat(seat){
+         // collect ranks for this seat
+         const ranks = getSeatRanks(seat);
+         const handSig = ranks.join(',');
+         const cache = oddsCache[seat] || {handSig:'', pct:0, lastComputed:0};
+         const now = Date.now();
+         if(cache.handSig === handSig && (now - (cache.lastComputed||0) < ODDS_THROTTLE_MS)){
+           return cache.pct;
+         }
+         // Otherwise compute synchronously (fast-ish Monte Carlo)
+         const remaining = getRemainingDeckRanks();
+        // include dealer upcard if present so simulations respect visible dealer card
+        const dealerUpRank = (dealerCards[0] && dealerCards[0].id) ? String(dealerCards[0].id).split('-').pop() : null;
+         const pct = estimateWinProbability(ranks, remaining, MONTE_CARLO_TRIALS, dealerUpRank);
+         cache.handSig = handSig;
+         cache.pct = pct;
+         cache.lastComputed = now;
+         oddsCache[seat] = cache;
+         return pct;
+       }
+      // project a world position to screen and position the DOM label beneath it
+      function worldToScreenPosition(vec){
+        const p = vec.clone().project(camera);
+        return { x: (p.x * 0.5 + 0.5) * innerWidth, y: ( -p.y * 0.5 + 0.5) * innerHeight };
+      }
+ 
+      function updateOddsUI(){
+        if(!oddsEls.length) createOddsUI();
+        for(let s=0;s<seatCount;s++){
+          const el = oddsEls[s];
+          const seatPos = playerPositions[s] ? playerPositions[s].clone() : new THREE.Vector3(0, BASE_DECK_Y, -4);
+          // place label slightly below the stacked cards
+          seatPos.y = BASE_DECK_Y - 0.6;
+          const scr = worldToScreenPosition(seatPos);
+          el.style.left = Math.round(scr.x - 30) + 'px';
+          el.style.top  = Math.round(scr.y) + 'px';
+          const pct = chanceWinForSeat(s);
+          el.textContent = `Odds: ${pct}%`;
+        }
+      }
+
+      async function dealBlackjackRound(){
+        const speed = parseFloat(document.getElementById('speed').value) || 1;
+        const duration = 450 / speed;
+        // Clear previous dealt state
+        dealtCards.length = 0;
+        dealerCards.length = 0;
+        // two passes: 0 -> first card to players + dealer upcard; 1 -> second card to players + dealer hole
+        for(let pass=0; pass<2; pass++){
+          // deal to players in order
+          for(let s=0; s<seatCount; s++){
+            if(deck.length === 0 || cardObjects.length === 0) break;
+            // synchronized pop/shift
+            const { meta, meshObj } = await safePopCardMeshAndMeta() || {};
+            const o = meshObj;
+             if(!o) continue;
+            // determine target base position and small jitter so stacked player cards don't exactly overlap
+            const existingForSeat = dealtCards.filter(d=> seatKey(d.seat) === seatKey(s)).length;
+            const base = playerPositions[s].clone();
+            base.y = BASE_DECK_Y;
+            base.x += (Math.random() - 0.5) * 0.02;
+            base.z += (Math.random() - 0.5) * 0.02;
+            o.seat = s; o._seatIndex = existingForSeat;
+            const targetEuler = new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ');
+            const finalY = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+            await Promise.all([
+              tweenTo(o, {x: base.x, y: finalY, z: base.z}, duration, t=>1-Math.pow(1-t,3)),
+              tweenRotationToEuler(o.mesh, targetEuler, duration)
+            ]);
+            o.mesh.position.set(base.x, finalY, base.z);
+            o.mesh.quaternion.setFromEuler(targetEuler);
+            o.faceUp = true;
+            o._baseOrigPosition = base.clone();
+            o.origPosition = o._baseOrigPosition.clone(); o.origPosition.y = finalY;
+            o.origQuaternion = o.mesh.quaternion.clone();
+            try{ playDealAt(o.mesh); }catch(e){}
+            dealtCards.push(o);
+            // re-layout this player's hand so cards are spaced instead of stacked
+            try{ layoutPlayerHand(s, Math.max(120, Math.floor(duration/6))); }catch(e){}
+            await wait(duration/8);
+          }
+          if(deck.length > 0 && cardObjects.length > 0){
+            const { meta, meshObj } = await safePopCardMeshAndMeta() || {};
+            const o = meshObj;
+            if(o){
+               // place dealer card centered at dealerPosition
+               const base = dealerPosition.clone();
+               // Spread dealer upcard and hole horizontally (left/right) using dynamic spacing
+               const idx = dealerCards.length || 0;
+               const spread = computeDealerSpacing(2);
+               const horiz = (idx === 0) ? -spread/2 : spread/2;
+                base.x += horiz;
+                const layerOffset = 0;
+                const finalY = BASE_DECK_Y + CARD_T/2 + GAP*0.5 + layerOffset;
+                 // first pass -> upcard face-up; second pass -> hole face-down
+                 const targetEuler = (pass === 0) ? new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ') : new THREE.Euler(-Math.PI/2, Math.PI, 0, 'XYZ');
+                 await Promise.all([
+                   tweenTo(o, {x: base.x, y: finalY, z: base.z}, duration, t=>1-Math.pow(1-t,3)),
+                   tweenRotationToEuler(o.mesh, targetEuler, duration)
+                 ]);
+               o.mesh.position.set(base.x, finalY, base.z);
+               o.mesh.quaternion.setFromEuler(targetEuler);
+               o.faceUp = (pass === 0);
+               o.seat = 'dealer';
+               // Keep dealer card index fixed so no incremental raising occurs
+               o._seatIndex = 0;
+               // record stable original/base positions so restack doesn't add vertical offsets
+               o._baseOrigPosition = base.clone();
+               o.origPosition = o._baseOrigPosition.clone();
+               o.origPosition.y = finalY;
+               o.origQuaternion = o.mesh.quaternion.clone();
+               // make renderOrder and material offset consistent for both dealer cards
+               try{
+                 o.mesh.renderOrder = 400; // ensure dealer renders above deck but doesn't alter stacking
+                 const mats = Array.isArray(o.mesh.material) ? o.mesh.material : [o.mesh.material];
+                 mats.forEach(m => { try{ if(m && m.polygonOffset){ m.polygonOffsetUnits = 1; m.polygonOffsetFactor = 0.5; } }catch(e){}; });
+               }catch(e){}
+               try{ playDealAt(o.mesh); }catch(e){}
+               dealerCards.push(o);
+              // dealer cards are not added to dealtCards; keep separate list
+               await wait(duration/6);
+             }
+           }
+         }
+         document.getElementById('log').textContent = 'Blackjack round dealt';
+        // after initial deal, wait for player's actions (dealer hole remains face-down)
+        try{ await setupPlayerTurn(); }catch(e){ console.error('setupPlayerTurn error', e); }
+        // no automatic fan: cards remain where dealt
+      }
+
+      // Reposition dealerCards evenly centered around dealerPosition.
+      function repositionDealerCards(duration = 380){
+        const cards = dealerCards.slice();
+        if(!cards.length) return Promise.resolve();
+        const center = dealerPosition.clone();
+       // dynamic spacing to avoid overlaps when dealer draws few cards
+       const spacing = computeDealerSpacing(cards.length);
+        const promises = [];
+        for(let i=0;i<cards.length;i++){
+          const o = cards[i];
+          if(!o || !o.mesh) continue;
+          // center cards symmetrically around dealerPosition
+          const targetX = center.x + (i - (cards.length-1)/2) * spacing;
+          // 1.01 => 0.0 for targetZ to remove blackjack style card stagger
+          const targetZ = center.z + 0.0 * (i - (cards.length-1)/2);
+          const targetY = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+          // keep card face state (faceUp -> front visible, else back)
+          const targetEuler = new THREE.Euler(-Math.PI/2, o.faceUp ? 0 : Math.PI, 0, 'XYZ');
+          // nudges for render ordering & polygon offset to reduce z-fighting
+          try{
+            o.mesh.renderOrder = 600 + i;
+            const mats = Array.isArray(o.mesh.material) ? o.mesh.material : [o.mesh.material];
+            mats.forEach(m => { try{ if(m && m.polygonOffset){ m.polygonOffsetUnits = 1 + i * 0.2; m.polygonOffsetFactor = 0.5; } }catch(e){}; });
+          }catch(e){}
+          // update saved positions so restack/fan use the new layout as base
+          o._baseOrigPosition = new THREE.Vector3(targetX, targetY, targetZ);
+          o.origPosition = o._baseOrigPosition.clone();
+          o.origQuaternion = o.mesh.quaternion.clone();
+          promises.push(Promise.all([
+            tweenTo(o, { x: targetX, y: targetY, z: targetZ }, duration, t => 1 - Math.pow(1 - t, 3)),
+            tweenRotationToEuler(o.mesh, targetEuler, duration)
+          ]));
+        }
+        return Promise.all(promises);
+      }
+ 
+       async function dealerPlay(){
+         const speed = parseFloat(document.getElementById('speed').value) || 1;
+         const duration = 420 / speed;
+
+         // helper to compute current dealer ranks
+         function currentDealerRanks(){
+           return dealerCards.map(o => {
+             if(!o || !o.id) return null;
+             const parts = String(o.id).split('-');
+             return parts[parts.length-1];
+           }).filter(Boolean);
+         }
+
+         if(dealerCards.length >= 2){
+           const hole = dealerCards[1];
+           if(hole && hole.mesh){
+             try{
+               // rotate hole card to face-up (-PI/2, 0, 0)
+               await tweenRotationToEuler(hole.mesh, new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ'), duration);
+               hole.mesh.quaternion.setFromEuler(new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ'));
+               hole.faceUp = true;
+              // after reveal, re-center dealer cards evenly
+              await repositionDealerCards(Math.max(180, duration/2));
+             }catch(e){
+               console.warn('dealerPlay: reveal hole failed', e);
+             }
+           }
+         }
+
+         // Evaluate and draw while dealer total < 17
+         let ranks = currentDealerRanks();
+         let total = computeBestTotalForRanks(ranks);
+         // allow a small safety guard to avoid infinite loops
+         let draws = 0;
+         while(total < 17 && deck.length > 0 && cardObjects.length > 0 && draws < 12){
+           draws++;
+           const pair = safePopCardMeshAndMeta();
+           if(!pair) break;
+           const { meta, meshObj: o } = pair;
+           if(!o) break;
+
+          // integrate the new card into the dealer hand and reflow once.
+          o.faceUp = true;
+          o.seat = 'dealer';
+          o._seatIndex = dealerCards.length;
+          dealerCards.push(o);
+          // animate all dealer cards (including this new one) into their evenly spaced final positions
+          await repositionDealerCards(Math.max(160, duration/2));
+           // re-evaluate dealer total after reposition
+           ranks = currentDealerRanks();
+           total = computeBestTotalForRanks(ranks);
+           // small pause between draws for animation clarity
+           await wait(Math.max(120, duration/6));
+         }
+
+         const finalText = (total > 21) ? `Dealer busts (${total})` : `Dealer stands on ${total}`;
+        try{ document.getElementById('log').textContent = finalText; }catch(e){}
+
+        // Compute and report per-player results vs dealer
+        try{
+          const dealerTotal = total;
+          const results = [];
+          // collect unique player seats from dealtCards (exclude dealer and undefined/null)
+          const playerSeats = Array.from(new Set((dealtCards||[])
+            .map(d=> seatKey(d.seat))
+            .filter(s=> s && s !== 'dealer' && s !== 'undefined' && s !== 'null')
+          ));
+          // fallback: if no dealtCards found (edge), assume seat indices 0..seatCount-1
+          if(playerSeats.length === 0){ for(let s=0;s<playerPositions.length;s++) playerSeats.push(String(s)); }
+          for(const seat of playerSeats){
+            try{
+              const ranks = getSeatRanks(seat);
+              const pTotal = computeHandTotal(ranks);
+              let resultText;
+              if(pTotal > 21) resultText = 'Dealer wins (player busted)';
+              else if(dealerTotal > 21) resultText = 'Player wins (dealer busted)';
+              else if(pTotal > dealerTotal) resultText = 'Player wins';
+              else if(pTotal < dealerTotal) resultText = 'Dealer wins';
+              else resultText = 'Push (tie)';
+              results.push({ seat, pTotal, resultText });
+            }catch(e){ console.warn('result compute failed for seat', seat, e); }
+          }
+          const summary = results.map(r=> {
+            const label = (r.seat === 'dealer') ? 'Dealer' : `Seat ${r.seat}`;
+            return `${label}: ${r.resultText} (${r.pTotal} vs ${dealerTotal})`;
+          }).join(' | ');
+          if(summary && summary.length) console.log('Round results:', summary);
+          try{ if(summary && summary.length) await animateChipOutcome(results); }catch(e){ console.warn('chip outcome anim failed', e); }
+          try{ if(summary && summary.length) document.getElementById('log').textContent = finalText + ' — ' + summary; }catch(e){}
+        }catch(e){ console.warn('round result reporting failed', e); }
+       }
+ 
+      async function dealToPlayers(n=5){
+         const speed = parseFloat(document.getElementById('speed').value) || 1;
+         const duration = 500 / speed;
+         for(let i=0;i<n;i++){
+           if(deck.length===0) break;
+           const top = deck.shift();
+           const o = cardObjects.pop();
+           if(!o) continue;
+           // determine seat by sequential dealing (supports multiple rounds)
+           const seat = typeof o.seat === 'number' ? o.seat : nextSeatIndex;
+           nextSeatIndex = (nextSeatIndex + 1) % seatCount;
+           // count how many cards already assigned to this seat so we can stack them
+           const existingForSeat = dealtCards.filter(d => seatKey(d.seat) === seatKey(seat)).length;
+           // target base position for this player's seat
+           const base = (playerPositions[seat] ? playerPositions[seat].clone() : new THREE.Vector3(0, BASE_DECK_Y, -4));
+           // keep y at deck base and apply a very small jitter so cards land on arc but don't overlap
+           const jitterX = (Math.random() - 0.5) * 0.02; // smaller jitter
+           const jitterZ = (Math.random() - 0.5) * 0.02;
+           base.x += jitterX;
+           base.z += jitterZ;
+           base.y = BASE_DECK_Y;
+           // record seat and per-seat index for this card
+           o.seat = seat;
+           o._seatIndex = existingForSeat;
+
+            // rotation: lie flat with the back face up (rotate 180° around Y)
+            const targetEuler = new THREE.Euler(-Math.PI/2, Math.PI, 0, 'XYZ');
+            const finalY = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+            // animate position to the lifted Y and rotate to perfectly flat in parallel
+           await Promise.all([
+             tweenTo(o, {x: base.x, y: finalY, z: base.z}, duration, t=>1-Math.pow(1-t,3)),
+             tweenRotationToEuler(o.mesh, targetEuler, duration)
+           ]);
+           // snap exactly to intended final position and rotation to avoid tiny numerical drift
+           o.mesh.position.set(base.x, finalY, base.z);
+           o.mesh.quaternion.setFromEuler(targetEuler);
+           // ensure proper draw order and per-card polygon offset within player stacks
+           try{
+             // make later cards in the player's stack render on top
+             o.mesh.renderOrder = 200 + seat * 10 + existingForSeat;
+             const mats = Array.isArray(o.mesh.material) ? o.mesh.material : [o.mesh.material];
+             const baseUnits = 1.0;
+             const unitStep = 0.8;
+             mats.forEach(m => { try{ if(m && m.polygonOffset){ m.polygonOffsetUnits = baseUnits + existingForSeat * unitStep; m.polygonOffsetFactor = 0.5; } }catch(e){}; });
+           }catch(e){}
+           o.faceUp = false;
+           try{ playDealAt(o.mesh.position); }catch(e){}
+           // store both current origPosition and an immutable base (per-seat base) to avoid accumulating raises
+           o._baseOrigPosition = base.clone();
+           o.origPosition = o._baseOrigPosition.clone();
+           o.origPosition.y = finalY;
+           o.origQuaternion = o.mesh.quaternion.clone();
+           dealtCards.push(o);
+            console.log('Dealt card:', o.id);
+            try{ layoutPlayerHand(seat, Math.max(120, Math.floor(duration/6))); }catch(e){}
+            await wait(duration/6);
+         }
+       }
+
+      async function revealAll(){
+        const speed = parseFloat(document.getElementById('speed').value) || 1;
+        const duration = 400 / speed;
+        for(const o of cardObjects){ flipCard(o, duration); }
+      }
+
+      function flipCard(o, duration=400){
+        const start = o.mesh.rotation.y;
+        const target = start + Math.PI;
+        const t0 = performance.now();
+        (function tick(now){
+          const p = Math.min(1,(now-t0)/duration);
+          o.mesh.rotation.y = start + (target-start)*easeInOutCubic(p);
+          if(p < 1) requestAnimationFrame(tick);
+        })(performance.now());
+        o.faceUp = !o.faceUp;
+      }
+
+
+      // helpers funcs
+      function wait(ms){ return new Promise(r=>setTimeout(r, ms)); }
+      function easeInOutCubic(t){ return t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2; }
+      function shuffleArray(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
+      // pop a mesh and shift its deck metadata atomically
+      function safePopCardMeshAndMeta(){
+        if(deck.length === 0 || cardObjects.length === 0) return null;
+        const meta = deck.shift();
+        const meshObj = cardObjects.pop();
+        return { meta, meshObj };
+      }
+
+      // window resize
+      window.addEventListener('resize', ()=>{ camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+      // raycasting for mouse pointer interaction
+      const ray = new THREE.Raycaster(); const mouse = new THREE.Vector2();
+      window.addEventListener('pointerdown', onPointerDown);
+      function onPointerDown(e){
+        mouse.x = (e.clientX / innerWidth) * 2 - 1;
+        mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+        ray.setFromCamera(mouse, camera);
+        const intersects = ray.intersectObjects(scene.children, true);
+        if(intersects.length === 0) return;
+        // flip the first clicked card
+        for(const it of intersects){
+          let m = it.object;
+          while(m && !m.userData.cardId) m = m.parent;
+          if(m && m.userData.cardId){
+            const cardId = m.userData.cardId;
+            // try dealtCards first, then the main cardObjects
+            const obj = dealtCards.find(o=>o.id===cardId) || cardObjects.find(o=>o.id===cardId) || {mesh:m, id:cardId};
+            // Sound on flip
+            try{ flipCard(obj, 300); }catch(e){}
+            try{ playDealAt(obj.mesh); }catch(e){}
+            return;
+          }
+        }
+
+      }
+
+      // UI bindings
+      document.getElementById('shuffleBtn').addEventListener('click', async ()=>{
+        try{ document.getElementById('log').textContent='Shuffling…'; }catch(e){}
+        // play positional shuffle sound with small jitter for variety
+        try{ playShuffleWithJitter(); }catch(e){ console.warn('shuffle jitter play failed', e); }
+        await visualShuffle();
+        try{ document.getElementById('log').textContent='Shuffled'; }catch(e){}
+      });
+      document.getElementById('dealBtn').addEventListener('click', async ()=>{ document.getElementById('log').textContent='Dealing blackjack round…'; await dealBlackjackRound(); document.getElementById('log').textContent='Dealt'; });
+       document.getElementById('resetBtn').addEventListener('click', ()=>{
+         deck = deckIds.slice();
+        clearDoubleEligibility();
+         // dispose dealt cards and deck objects and reset fan state
+         dealtCards.forEach(o=>disposeCard(o));
+         dealtCards.length = 0;
+         // dispose dealer cards
+         dealerCards.forEach(o=>disposeCard(o));
+         dealerCards.length = 0;
+         dealtFanned = false;
+         // dispose existing deck objects
+         cardObjects.forEach(o=>disposeCard(o));
+         cardObjects.length = 0;
+         layoutDeckAt();
+          document.getElementById('log').textContent='Deck reset';
+        });
+      document.getElementById('revealBtn').addEventListener('click', ()=>{ document.getElementById('log').textContent='Revealing…'; revealAll(); document.getElementById('log').textContent='Reveal toggled'; });
+     // Show-hand control removed: cards are fanned by default.
+
+     // Return cached dealtCards if present; otherwise detect dealt cards by scanning the scene.
+     // Global helper to make a mesh's materials "safe cloning" so detected meshes can be animated/stacked.
+     function makeMaterialsSafe(mesh){
+        try{
+          if(!mesh || mesh.userData && mesh.userData._materialsSafe) return;
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          const newMats = mats.map(m=>{
+            if(!m) return m;
+            const copy = m.clone();
+            copy.polygonOffset = true;
+            copy.polygonOffsetFactor = 0.5;
+            const idx = (mesh.userData && typeof mesh.userData.stackIndex === 'number') ? mesh.userData.stackIndex : 0;
+            copy.polygonOffsetUnits = 1 + idx * 0.6;
+            copy.alphaTest = 0.01;
+            copy.depthWrite = true;
+            copy.depthTest = true;
+            copy.transparent = false;
+            copy.side = THREE.DoubleSide;
+            return copy;
+          });
+          mesh.material = Array.isArray(mesh.material) ? newMats : newMats[0];
+          mesh.receiveShadow = false;
+          mesh.userData._materialsSafe = true;
+        }catch(e){}
+      }
+
+      function getDealtCards(){
+        if(dealtCards && dealtCards.length) return dealtCards;
+        const presentIds = new Set(cardObjects.map(o=>o.id));
+        const found = [];
+
+        // traverse and collect top-level card meshes not already in cardObjects
+        scene.traverse(node=>{
+          if(!node) return;
+          let m = node;
+          while(m && !m.userData?.cardId) m = m.parent;
+          if(m && m.userData && m.userData.cardId){
+            const id = m.userData.cardId;
+            if(!presentIds.has(id) && !found.some(f=>f.id===id)){
+              // clone/adjust materials to avoid interfering with other meshes and reduce z-fighting
+              makeMaterialsSafe(m);
+              // set a high renderOrder so these detected dealt cards render after deck by default
+              if(typeof m.renderOrder !== 'number' || m.renderOrder < 1000) m.renderOrder = 1000;
+              // ensure a stable stack index exists on detected meshes (fallback after deck indices)
+              if(typeof m.userData.stackIndex !== 'number') m.userData.stackIndex = 10000 + found.length;
+              // ensure we mark these as detected so we don't continuously re-clone
+              m.userData._detectedDealt = true;
+
+              // mark detected card as dealer if positioned near dealerPosition, and fix its orig Y
+              const detectedOrigPos = m.position.clone();
+              const distToDealer = detectedOrigPos.distanceTo(dealerPosition);
+              let detectedSeat = undefined;
+              if(distToDealer < 0.6){
+                detectedSeat = 'dealer';
+                detectedOrigPos.y = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+              } else {
+                // detect nearest player seat (use a slightly larger threshold)
+                for(let s=0; s<playerPositions.length; s++){
+                  const pp = playerPositions[s];
+                  if(!pp) continue;
+                  const d2 = detectedOrigPos.distanceTo(pp);
+                  if(d2 < 1.2){
+                   detectedSeat = s;
+                   detectedOrigPos.y = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+                   break;
+                  }
+                }
+              }
+
+              // derive a simple faceUp estimate from Y-rotation (cards with ~PI Y are face-down)
+              let faceUp = true;
+              try{
+                const ry = ((m.rotation.y % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
+                if(Math.abs(ry - Math.PI) < 0.9) faceUp = false;
+              }catch(e){}
+
+              // include split() friendly metadata so later logic (split/restack) works on detected wrappers
+              found.push({
+                mesh: m,
+                id: id,
+                faceUp: faceUp,
+                seat: detectedSeat,
+                _baseOrigPosition: detectedOrigPos.clone(),
+                _seatIndex: 0,
+                origPosition: detectedOrigPos.clone(),
+                origQuaternion: m.quaternion.clone()
+              });
+            }
+          }
+        });
+        if(found.length){
+          dealtCards.length = 0;
+          found.forEach(f=>dealtCards.push(f));
+        }
+        return dealtCards;
+      }
+ 
+      // small helper to prepare a detected dealt mesh before fanning/restacking:
+      function prepareDealtMesh(o, index){
+        if(!o || !o.mesh) return;
+        const m = o.mesh;
+        // make materials match created card material settings
+        try{ makeMaterialsSafe(m); }catch(e){}
+        // ensure stable stack index fallback
+        if(typeof m.userData.stackIndex !== 'number') m.userData.stackIndex = 10000 + index;
+        // establish an immutable base original position once, then derive origPosition from it
+        if(!o._baseOrigPosition){
+          if(o.origPosition) o._baseOrigPosition = o.origPosition.clone();
+          else o._baseOrigPosition = m.position.clone();
+        }
+        // preserve original seat value and normalized keys so toggling doesn't lose identity
+        if(typeof o._origSeat === 'undefined') o._origSeat = o.seat;
+        o._seatKey = seatKey(o._origSeat);
+        o._seatBaseKey = seatBaseKey(o._origSeat);
+        // compute origPosition from base (no accumulation)
+        o.origPosition = o._baseOrigPosition.clone();
+        try{
+          // Do NOT apply the per-card vertical DEAL_LAYER_RAISE for dealer cards so dealer's hand doesn't stack.
+          if(o.seat === 'dealer' || (m.userData && m.userData.seat === 'dealer')){
+            // ensure dealer index is fixed and origPosition is set to the dealer plane
+            o._seatIndex = 0;
+            o.origPosition.y = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+            // also ensure base stored Y matches
+            o._baseOrigPosition.y = o.origPosition.y;
+          } else {
+            // Do not vertically stack player cards — keep them on the same plane.
+            o.origPosition.y = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+          }
+        }catch(e){}
+      }
+
+      // Layout a player's hand by spacing their dealt cards horizontally (or forward for split seats).
+      function layoutPlayerHand(seat, duration = 240){
+        try{
+          const key = seatKey(seat);
+          const hand = dealtCards.filter(o => seatKey(o.seat) === key);
+          if(!hand || hand.length === 0) return Promise.resolve();
+          // determine anchor center: split seats move forward toward dealer
+          const isSplit = (typeof key === 'string' && key.includes('_split'));
+          const baseIdx = isSplit ? (parseInt(String(key).split('_')[0], 10) || 0) : Number(key);
+          const base = (playerPositions[baseIdx] ? playerPositions[baseIdx].clone() : playerPositions[0].clone());
+          const center = base.clone();
+          if(isSplit){
+            const dealerDir = dealerPosition.clone().sub(base); dealerDir.y = 0; if(dealerDir.lengthSq() < 1e-6) dealerDir.set(0,0,1); else dealerDir.normalize();
+            const FORWARD_SHIFT = CARD_W * 1.5; // move split closer to dealer
+            center.addScaledVector(dealerDir, FORWARD_SHIFT);
+          }
+          const fanY = BASE_DECK_Y + CARD_T/2 + GAP*0.5;
+          // wider spacing plus slight per-card expansion to avoid overlaps
+          const baseSpacing = CARD_W * 1.05;
+          const spacing = baseSpacing + Math.max(0, hand.length - 1) * 0.28;
+          const promises = [];
+          hand.sort((a,b)=> (a._seatIndex||0) - (b._seatIndex||0));
+          for(let i=0;i<hand.length;i++){
+            const o = hand[i];
+            const offset = i - (hand.length - 1) / 2;
+            const targetX = center.x + offset * spacing;
+            const targetZ = center.z + 0.0 * offset;
+            const targetY = fanY;
+            o._seatIndex = i;
+            o._baseOrigPosition = new THREE.Vector3(targetX, targetY, targetZ);
+            o.origPosition = o._baseOrigPosition.clone();
+            o.origQuaternion = o.mesh.quaternion.clone();
+            const targetEuler = new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ');
+            o.faceUp = true;
+            if(duration > 0) promises.push(Promise.all([
+              tweenTo(o, {x: targetX, y: targetY, z: targetZ}, duration, t=>1-Math.pow(1-t,3)),
+              tweenRotationToEuler(o.mesh, targetEuler, duration)
+            ]));
+            else {
+              o.mesh.position.set(targetX, targetY, targetZ);
+              o.mesh.quaternion.setFromEuler(targetEuler);
+            }
+          }
+          return Promise.all(promises);
+        }catch(e){ return Promise.resolve(); }
+      }
+
+      // initial load
+       await loadAllTextures();
+        layoutDeckAt();
+       createOddsUI();
+       document.getElementById('log').textContent = 'Ready';
+
+
+      // animation loop
+      // physics clock for chips simulation
+      const physClock = new THREE.Clock();
+      (function animate(){
+        const dt = Math.min(0.05, physClock.getDelta());
+        requestAnimationFrame(animate);
+        if(controls) controls.update();
+        // refresh odds overlay every frame so it tracks camera and deals
+        try{ updateOddsUI(); }catch(e){}
+        // update chip physics before rendering
+        try{ updateChips(dt); }catch(e){}
+        renderer.render(scene, camera);
+      })();
+    }
+
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>3D Keno (three.js)</title>
+  <style>
+    html,body{height:100%;margin:0;background:#071718;color:#cfeff0;font-family:Inter,system-ui,Arial;overflow:hidden}
+    canvas{display:block;width:100%;height:100%}
+    .ui{position:absolute;left:12px;top:12px;z-index:5;color:#cfeff0}
+    .ui button{background:#0d6b75;border:0;padding:8px 12px;border-radius:8px;color:white;margin-right:8px;cursor:pointer}
+    .ui label{color:#9fd6db;margin-left:8px;display:inline-block;margin-right:12px}
+    .ui input[type=number]{width:80px;padding:6px;border-radius:6px;border:1px solid #234;background:#0b2b2c;color:#dff}
+    .status{position:absolute;left:12px;top:120px;z-index:5;background:rgba(0,0,0,0.25);padding:12px;border-radius:8px;color:#cfeff0;width:320px}
+    .status h3{margin:0 0 8px;font-size:14px}
+    .status-item{font-size:13px;margin:4px 0;color:#9fd6db}
+    .drawn-list{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+    .num-pill{padding:4px 6px;border-radius:4px;background:#0d6b75;min-width:28px;text-align:center;font-size:12px;font-weight:700}
+    .num-pill.matched{background:#7bd389;color:#003318}
+    .payout{margin-top:8px;font-size:13px;font-weight:700;color:#7bd389}
+    .number-grid{position:absolute;right:12px;top:12px;z-index:5;display:grid;grid-template-columns:repeat(10,36px);gap:4px;width:400px}
+    .number-cell{background:#0d2b2b;border-radius:4px;padding:6px;text-align:center;cursor:pointer;font-weight:700;color:#bfe9ee;font-size:11px;border:1px solid #1a4b4c}
+    .number-cell.selected{outline:2px solid #2ecc71;background:#0a6f6d}
+    .number-cell.drawn{background:#2b6b6a}
+    .number-cell.matched{background:#7bd389;color:#003318}
+    footer{position:absolute;right:12px;bottom:12px;color:#9fd6db;font-size:12px;z-index:5}
+
+    #intro-title {
+                position: fixed;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                font-size: clamp(3.5rem, 9vw, 9rem);
+                font-weight: 800;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+
+                color: #f2f2f2;
+
+                text-shadow:
+                    0 0 12px rgba(255, 255, 255, 0.08),
+                    0 0 32px rgba(255, 255, 255, 0.04);
+
+                background:
+                    radial-gradient(
+                        ellipse at center,
+                        rgba(0, 0, 0, 0.35) 0%,
+                        rgba(0, 0, 0, 0.65) 100%
+                    );
+
+                pointer-events: none;
+                z-index: 9999;
+
+                opacity: 0;
+                filter: blur(10px);
+                transform: scale(1.02);
+
+                animation: controlIntro 4.5s cubic-bezier(0.4, 0, 0.2, 1)
+                    forwards;
+            }
+
+            @keyframes controlIntro {
+                0% {
+                    opacity: 0;
+                    filter: blur(10px);
+                    transform: scale(1.02);
+                }
+
+                18% {
+                    opacity: 1;
+                    filter: blur(0);
+                    transform: scale(1);
+                }
+
+                70% {
+                    opacity: 1;
+                    filter: blur(0);
+                }
+
+                100% {
+                    opacity: 0;
+                    filter: blur(6px);
+                }
+            }
+
+  </style>
+</head>
+<body>
+  <div id="intro-title">KENO</div>
+  <div class="ui">
+    <div>
+      <label>Bet per number: $<input id="betAmt" type="number" min="0" step="1" value="10"></label>
+      <button id="autoPick" class="btn">Auto pick</button>
+      <button id="clearBtn" class="btn">Clear</button>
+      <button id="drawBtn" class="btn">Draw 20</button>
+    </div>
+    <div style="margin-top:8px;color:#9fd6db;font-size:13px">Selected: <span id="selCount">0</span>/10</div>
+  </div>
+
+  <div class="status">
+    <h3 id="message">Pick numbers then press Draw</h3>
+    <div id="drawnSection" style="display:none">
+      <div class="status-item">Drawn numbers:</div>
+      <div class="drawn-list" id="drawnList"></div>
+      <div class="status-item" id="matchCount"></div>
+      <div class="payout" id="payout"></div>
+    </div>
+  </div>
+
+  <div class="number-grid" id="numberGrid"></div>
+
+  <footer>3D Keno: 20 balls drawn from 80. Payout = bet × matches × 2</footer>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./three.module.js",
+        "three/addons/controls/OrbitControls.js": "./jsm/controls/OrbitControls.js"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // UI State
+    const selected = new Set();
+    let drawn = [];
+    let spinning = false;
+    let locked = false;
+
+    const MAX_SELECT = 10;
+    const DRAW_COUNT = 20;
+    const BALL_COUNT = 80;
+    const BALL_RADIUS = 0.35;
+
+    // DOM elements
+    const selCountEl = document.getElementById('selCount');
+    const messageEl = document.getElementById('message');
+    const drawnListEl = document.getElementById('drawnList');
+    const drawnSectionEl = document.getElementById('drawnSection');
+    const matchCountEl = document.getElementById('matchCount');
+    const payoutEl = document.getElementById('payout');
+    const betAmtEl = document.getElementById('betAmt');
+    const numberGridEl = document.getElementById('numberGrid');
+
+    // Three.js scene setup
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x071718);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 4, 12);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 2;
+    controls.target.set(0, 1, 0);
+    controls.maxPolarAngle = Math.PI/2.1;
+    // Control distance to prevent frustrum culling
+    controls.maxDistance = 44;
+
+    // Lighting
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x222222, 2.0);
+    hemi.position.set(0, 10, 0);
+    scene.add(hemi);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(8, 12, 8);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(2048, 2048);
+    dirLight.shadow.bias = -0.0005;
+    dirLight.shadow.normalBias = 0.02;
+    scene.add(dirLight);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+
+    // Floor
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(50, 50),
+      new THREE.MeshStandardMaterial({ color: 0x081616, roughness: 0.95 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -1;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // Raffle tumbler setup - horizontal orientation
+    const tumblerRadius = 3.5;
+    const tumblerLength = 10;
+    const tumblerGroup = new THREE.Group();
+    tumblerGroup.position.y = 2.8; // Lift above floor to prevent clipping
+    scene.add(tumblerGroup);
+
+    // Create transparent tumbler
+    const tumblerGeom = new THREE.CylinderGeometry(tumblerRadius, tumblerRadius, tumblerLength, 32);
+    const tumblerMat = new THREE.MeshStandardMaterial({
+      color: 0x0d6b75,
+      transparent: true,
+      opacity: 0.15,
+      metalness: 0.3,
+      roughness: 0.5,
+      side: THREE.DoubleSide
+    });
+    const tumbler = new THREE.Mesh(tumblerGeom, tumblerMat);
+    tumbler.rotation.z = Math.PI / 2; // Rotate 90 degrees to be horizontal
+    tumbler.castShadow = false;
+    tumbler.receiveShadow = false;
+    tumblerGroup.add(tumbler);
+
+    // Add rim edges for visibility
+    const rimGeom = new THREE.TorusGeometry(tumblerRadius, 0.12, 16, 32);
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0x2ecc71, metalness: 0.8, roughness: 0.2 });
+    const leftRim = new THREE.Mesh(rimGeom, rimMat);
+    leftRim.rotation.y = Math.PI / 2;
+    leftRim.position.x = -tumblerLength / 2;
+    leftRim.castShadow = true;
+    tumblerGroup.add(leftRim);
+
+    const rightRim = new THREE.Mesh(rimGeom, rimMat);
+    rightRim.rotation.y = Math.PI / 2;
+    rightRim.position.x = tumblerLength / 2;
+    rightRim.castShadow = true;
+    tumblerGroup.add(rightRim);
+
+    // Create ping pong balls with numbers
+    const balls = [];
+    const ballMeshes = [];
+    const ballTextureCache = {};
+    // Target positions to showcase drawn balls
+    const showcaseTargets = new Map();
+
+    function createBallTexture(number) {
+      const key = `ball_${number}`;
+      if (ballTextureCache[key]) return ballTextureCache[key];
+
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      // Fill entire canvas to avoid transparent edges (prevents black mipmap bleed)
+      ctx.fillStyle = '#9a7208';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Base circle
+      ctx.beginPath();
+      ctx.arc(128, 128, 128, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Add subtle shading
+      const grad = ctx.createRadialGradient(100, 100, 20, 128, 128, 128);
+      grad.addColorStop(0, 'rgba(255,255,255,0.3)');
+      grad.addColorStop(1, 'rgba(200,200,200,0.2)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(128, 128, 128, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Number text
+      ctx.fillStyle = '#000000';
+      ctx.font = 'bold 80px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(number, 128, 128);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      // Ensure proper color handling and sampling to reduce artifacts
+      if ('colorSpace' in texture) {
+        texture.colorSpace = THREE.SRGBColorSpace;
+      } else {
+        texture.encoding = THREE.sRGBEncoding;
+      }
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.minFilter = THREE.LinearMipMapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      texture.needsUpdate = true;
+      ballTextureCache[key] = texture;
+      return texture;
+    }
+
+    function createBall(number, x, y, z) {
+      const texture = createBallTexture(number);
+      const geom = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
+      const mat = new THREE.MeshStandardMaterial({
+        map: texture,
+        roughness: 0.6,
+        metalness: 0.0
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = false;
+
+      tumblerGroup.add(mesh);
+      ballMeshes.push(mesh);
+
+      const ball = {
+        number,
+        mesh,
+        position: new THREE.Vector3(x, y, z),
+        velocity: new THREE.Vector3(0, 0, 0),
+        drawn: false
+      };
+      balls.push(ball);
+      return ball;
+    }
+
+    // Initialize balls in random positions inside tumbler
+    function initializeBalls() {
+      const innerRadius = tumblerRadius - BALL_RADIUS * 2;
+      const innerLength = tumblerLength - BALL_RADIUS * 2;
+
+      for (let i = 1; i <= BALL_COUNT; i++) {
+        let x, y, z, dist;
+        // Ensure ball is inside cylinder (horizontal orientation)
+        // X is along the length, Y and Z form the circle
+        x = (Math.random() - 0.5) * innerLength;
+        do {
+          y = (Math.random() - 0.5) * innerRadius * 2;
+          z = (Math.random() - 0.5) * innerRadius * 2;
+          dist = Math.sqrt(y * y + z * z);
+        } while (dist > innerRadius);
+
+        createBall(i, x, y, z);
+      }
+    }
+
+    // Physics simulation
+    const baseGravity = new THREE.Vector3(0, -20, 0); // Gravity pulls down in world space
+    const DAMPING = 0.97;
+    const FRICTION = 0.003;
+
+    function updatePhysics(dt) {
+      const innerRadius = tumblerRadius - BALL_RADIUS;
+      const innerLength = tumblerLength / 2 - BALL_RADIUS;
+
+      // Transform world-space gravity to tumbler's local coordinate system
+      const localGravity = baseGravity.clone();
+      const inverseRotation = new THREE.Matrix4().makeRotationX(-tumblerGroup.rotation.x);
+      localGravity.applyMatrix4(inverseRotation);
+
+      // Add centrifugal force when tumbler is spinning
+      const angularVelocity = tumblerRotationSpeed;
+      
+      // Ball-to-ball collision detection first
+      for (let i = 0; i < balls.length; i++) {
+        const ball = balls[i];
+        for (let j = i + 1; j < balls.length; j++) {
+          const other = balls[j];
+          const delta = new THREE.Vector3().subVectors(other.position, ball.position);
+          const dist = delta.length();
+          const minDist = BALL_RADIUS * 2.05; // Slightly larger to prevent sticking
+
+          if (dist < minDist && dist > 0.01) {
+            const normal = delta.normalize();
+            const overlap = minDist - dist;
+            
+            // Separate balls with slight push to prevent clumping
+            const separation = overlap * 0.52;
+            ball.position.addScaledVector(normal, -separation);
+            other.position.addScaledVector(normal, separation);
+
+            // Add slight random dispersion to prevent clumping
+            const disperseForce = 0.95;
+            ball.velocity.x += (Math.random() - 0.5) * disperseForce;
+            ball.velocity.z += (Math.random() - 0.5) * disperseForce;
+            other.velocity.x += (Math.random() - 0.5) * disperseForce;
+            other.velocity.z += (Math.random() - 0.5) * disperseForce;
+
+            // Elastic collision response
+            const relVel = new THREE.Vector3().subVectors(other.velocity, ball.velocity);
+            const velAlongNormal = relVel.dot(normal);
+
+            if (velAlongNormal < 0) {
+              const restitution = 0.75; // Bounciness
+              const impulse = -(1 + restitution) * velAlongNormal / 2;
+              const impulseVec = normal.clone().multiplyScalar(impulse);
+              ball.velocity.sub(impulseVec);
+              other.velocity.add(impulseVec);
+            }
+          }
+        }
+      }
+
+      // Update each ball
+      for (const ball of balls) {
+        // Apply gravity in local coordinate system
+        ball.velocity.addScaledVector(localGravity, dt);
+        
+        // Apply reduced centrifugal force when spinning (weaker == more bouncing)
+        if (Math.abs(angularVelocity) > 0.1) {
+          const centrifugalForce = new THREE.Vector3(0, ball.position.y, ball.position.z);
+          const radialDist = centrifugalForce.length();
+          if (radialDist > 0.0001) {
+            centrifugalForce.normalize();
+            const forceMagnitude = angularVelocity * angularVelocity * radialDist * 0.001;
+            ball.velocity.addScaledVector(centrifugalForce, forceMagnitude * dt);
+          }
+        }
+
+        // If ball is drawn, gently attract it to its showcase target
+        if (ball.drawn) {
+          const target = showcaseTargets.get(ball.number);
+          if (target) {
+            const toTarget = new THREE.Vector3().subVectors(target, ball.position);
+            // Spring-like attraction with light damping
+            ball.velocity.addScaledVector(toTarget, dt * 10.0);
+            ball.velocity.multiplyScalar(0.95);
+          }
+        }
+        
+        ball.velocity.multiplyScalar(DAMPING);
+
+        // Update position
+        ball.position.addScaledVector(ball.velocity, dt);
+
+        // Cylindrical boundary collision (Y-Z plane in local space)
+        // Only apply to non-drawn balls so drawn balls can escape to showcase positions
+        if (!ball.drawn) {
+          const radDist = Math.sqrt(ball.position.y ** 2 + ball.position.z ** 2);
+          if (radDist > innerRadius) {
+            const normal = new THREE.Vector3(0, ball.position.y, ball.position.z).normalize();
+            ball.position.y = normal.y * innerRadius;
+            ball.position.z = normal.z * innerRadius;
+            const vel = new THREE.Vector3(0, ball.velocity.y, ball.velocity.z);
+            const dot = vel.dot(normal);
+            if (dot > 0) {
+              normal.multiplyScalar(-dot * FRICTION * 2.2);
+              ball.velocity.add(normal);
+            }
+          }
+        }
+
+        // End cap collision (X axis bounds)
+        if (!ball.drawn && ball.position.x > innerLength) {
+          ball.position.x = innerLength;
+          ball.velocity.x *= -0.5;
+          ball.velocity.y *= FRICTION;
+          ball.velocity.z *= FRICTION;
+        }
+        if (!ball.drawn && ball.position.x < -innerLength) {
+          ball.position.x = -innerLength;
+          ball.velocity.x *= -0.5;
+          ball.velocity.y *= FRICTION;
+          ball.velocity.z *= FRICTION;
+        }
+
+        ball.mesh.position.copy(ball.position);
+      }
+    }
+
+    // Tumbler rotation
+    let tumblerRotationSpeed = 0;
+    function updateTumbler(dt) {
+      tumblerGroup.rotation.x += tumblerRotationSpeed * dt;
+      tumblerRotationSpeed *= 0.96; // Gradual slowdown
+    }
+
+    // Number grid UI
+    function createNumberGrid() {
+      numberGridEl.innerHTML = '';
+      for (let i = 1; i <= 80; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'number-cell';
+        cell.textContent = i;
+        cell.dataset.num = i;
+        cell.addEventListener('click', () => toggleSelect(i, cell));
+        numberGridEl.appendChild(cell);
+      }
+    }
+
+    function toggleSelect(num, el) {
+      if (locked) return;
+      if (selected.has(num)) {
+        selected.delete(num);
+        el.classList.remove('selected');
+      } else {
+        if (selected.size >= MAX_SELECT) {
+          messageEl.textContent = 'You can select up to 10 numbers';
+          setTimeout(() => (messageEl.textContent = 'Pick numbers then press Draw'), 2000);
+          return;
+        }
+        selected.add(num);
+        el.classList.add('selected');
+      }
+      selCountEl.textContent = selected.size;
+    }
+
+    function clearSelection() {
+      selected.clear();
+      selCountEl.textContent = '0';
+      drawn = [];
+      locked = false;
+      tumblerRotationSpeed = 0;
+      drawnSectionEl.style.display = 'none';
+      messageEl.textContent = 'Pick numbers then press Draw';
+      document.querySelectorAll('.number-cell').forEach(c =>
+        c.classList.remove('selected', 'drawn', 'matched')
+      );
+      balls.forEach(b => {
+        b.drawn = false;
+        b.mesh.rotation.set(0, 0, 0);
+      });
+      controls.autoRotate = true;
+    }
+
+    function autoPick() {
+      clearSelection();
+      const pool = [...Array(80).keys()].map(i => i + 1);
+      while (selected.size < MAX_SELECT) {
+        const idx = Math.floor(Math.random() * pool.length);
+        selected.add(pool.splice(idx, 1)[0]);
+      }
+      selCountEl.textContent = selected.size;
+      document.querySelectorAll('.number-cell').forEach(c => {
+        if (selected.has(+c.dataset.num)) c.classList.add('selected');
+      });
+    }
+
+    function drawNumbers() {
+      if (locked) return;
+      if (selected.size === 0) {
+        messageEl.textContent = 'Select at least one number';
+        return;
+      }
+
+      // Reset all balls from previous draw
+      balls.forEach(b => {
+        b.drawn = false;
+        b.mesh.rotation.set(0, 0, 0);
+        b.mesh.material.emissive = new THREE.Color(0x000000);
+        b.mesh.material.emissiveIntensity = 0;
+      });
+      showcaseTargets.clear();
+      
+      // Clear previous drawn UI state
+      document.querySelectorAll('.number-cell').forEach(c =>
+        c.classList.remove('drawn', 'matched')
+      );
+
+      locked = true;
+      spinning = true;
+      controls.autoRotate = false;
+      messageEl.textContent = 'Tumbling...';
+      drawnSectionEl.style.display = 'none';
+
+      // Vigorous wheel-like rotation
+      tumblerRotationSpeed = 55;
+
+      // After 3 seconds, select the drawn balls
+      setTimeout(() => {
+        spinning = false;
+        selectDrawnBalls();
+      }, 3000);
+    }
+
+    function selectDrawnBalls() {
+      drawn = [];
+
+      // Find balls inside tumbler relative to tumblerGroup
+      const checkRadius = tumblerRadius - BALL_RADIUS;
+      const checkLength = tumblerLength / 2 - BALL_RADIUS;
+
+      const ballsInTumbler = balls.filter(b => {
+        const radDist = Math.sqrt(b.position.y ** 2 + b.position.z ** 2);
+        return radDist <= checkRadius && Math.abs(b.position.x) <= checkLength;
+      });
+
+      // Sort by height (Y position in local space)
+      const sortedBalls = ballsInTumbler.sort((a, b) => b.position.y - a.position.y);
+
+      // Select drawn balls
+      for (let i = 0; i < DRAW_COUNT && i < sortedBalls.length; i++) {
+        drawn.push(sortedBalls[i].number);
+        sortedBalls[i].drawn = true;
+      }
+      drawn.sort((a, b) => a - b);
+
+      // Showcase placement (compute position above cylinder accounting for rotation)
+      showcaseTargets.clear();
+      const innerRadius = tumblerRadius - BALL_RADIUS;
+      
+      // World-space "up" direction transformed to local space
+      const worldUp = new THREE.Vector3(0, 1, 0);
+      const localUp = worldUp.clone().applyQuaternion(tumblerGroup.quaternion.clone().invert());
+      localUp.normalize();
+      
+      // Offset distance above cylinder surface
+      const offsetDistance = tumblerRadius + BALL_RADIUS * 1.5;
+      
+      const cols = 5, rows = 4;
+      const xMin = -tumblerLength * 0.35;
+      const xStep = (tumblerLength * 0.70) / (cols - 1);
+      const zMin = -innerRadius * 0.45;
+      const zStep = (innerRadius * 0.90) / (rows - 1);
+      for (let i = 0; i < drawn.length; i++) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        let x = xMin + col * xStep;
+        let z = zMin + row * zStep;
+        
+        // Apply offset in the local "up" direction
+        const target = new THREE.Vector3(x, 0, z).add(localUp.clone().multiplyScalar(offsetDistance));
+        showcaseTargets.set(drawn[i], target);
+      }
+
+      // Visual indicators
+      for (let i = 0; i < sortedBalls.length && i < DRAW_COUNT; i++) {
+        const ball = sortedBalls[i];
+        const isHit = selected.has(ball.number);
+        ball.mesh.material.emissive = new THREE.Color(isHit ? 0x2ecc71 : 0x000000);
+        ball.mesh.material.emissiveIntensity = isHit ? 0.9 : 0.6;
+        
+        // Orient ball mesh so number faces outward in world space, accounting for tumbler rotation
+        const worldQuat = new THREE.Quaternion();
+        worldQuat.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+        const parentQuatInv = tumblerGroup.quaternion.clone().invert();
+        const localQuat = new THREE.Quaternion().multiplyQuaternions(parentQuatInv, worldQuat);
+        ball.mesh.quaternion.copy(localQuat);
+      }
+
+      renderDrawn();
+      computeMatches();
+      locked = false;
+    }
+
+    function renderDrawn() {
+      drawnListEl.innerHTML = '';
+      drawn.forEach(n => {
+        const pill = document.createElement('div');
+        pill.className = 'num-pill';
+        if (selected.has(n)) pill.classList.add('matched');
+        pill.textContent = n;
+        drawnListEl.appendChild(pill);
+      });
+
+      document.querySelectorAll('.number-cell').forEach(c => {
+        const n = +c.dataset.num;
+        c.classList.remove('drawn', 'matched');
+        if (drawn.includes(n)) c.classList.add('drawn');
+        if (selected.has(n) && drawn.includes(n)) c.classList.add('matched');
+      });
+
+      drawnSectionEl.style.display = 'block';
+    }
+
+    function computeMatches() {
+      const matches = [...selected].filter(x => drawn.includes(x));
+      const bet = Math.max(0, parseFloat(betAmtEl.value) || 0);
+      const payout = bet * matches.length * 2;
+      matchCountEl.textContent = `Matched: ${matches.length} number(s)`;
+      payoutEl.textContent = `Payout: $${payout.toFixed(2)}`;
+      messageEl.textContent = `Drew 20 balls — matched ${matches.length}`;
+    }
+
+    // Event listeners
+    document.getElementById('autoPick').addEventListener('click', autoPick);
+    document.getElementById('clearBtn').addEventListener('click', clearSelection);
+    document.getElementById('drawBtn').addEventListener('click', drawNumbers);
+
+    // Initialize
+    createNumberGrid();
+    initializeBalls();
+
+    // Animation loop
+    let lastTime = performance.now();
+    function animate(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.016);
+      lastTime = now;
+
+      // Always keep physics running for continuous ball motion
+      updatePhysics(dt);
+      updateTumbler(dt);
+      
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+
+    animate(performance.now());
+
+    // Handle resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
+</body>
+</html>
