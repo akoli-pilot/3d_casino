@@ -3,7 +3,7 @@
 This directory contains a collection of browser-based 3D casino game prototypes and demos built with three.js.
 Each page is self-contained and loads local assets (cards, chips, sounds, table textures) plus three.js modules from this folder.
 
-## Live Links (Might Expire on April 24)
+## Live Links (Might Expire on April 26, 2027)
 ```
 Blackjack:          https://www.cs.csub.edu/~akoli/Casino/bj.html
 Baccarat:           https://www.cs.csub.edu/~akoli/Casino/chemin.html
