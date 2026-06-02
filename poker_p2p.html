@@ -889,6 +889,7 @@
                             updateMySeatDisplay();
                             document.getElementById("log").textContent = `Hosting room: ${roomName} (You are Player 1)`;
                             updatePlayerCount();
+                            runInitialShuffles();
                         });
                         
                         peer.on('connection', (conn) => {
@@ -2389,6 +2390,9 @@
                     let currentBet = 0; // track if there's a bet to call
                     let handComplete = false; // track if the current hand is finished
                     let deckResetVersion = 0; // monotonic reset counter for resilient sync
+                    const INITIAL_SHUFFLE_COUNT = 7;
+                    let initialShuffleDone = false;
+                    let initialShuffleInProgress = false;
                     
                     function getCurrentGameState() {
                         return {
@@ -4150,6 +4154,52 @@
                         }
                     }
 
+                    async function runInitialShuffles(
+                        count = INITIAL_SHUFFLE_COUNT,
+                    ) {
+                        if (initialShuffleDone || initialShuffleInProgress)
+                            return;
+                        if (!canUseTopControls()) return;
+                        if (!texturesLoaded) return;
+                        if (cardObjects.length === 0 || deck.length === 0)
+                            return;
+
+                        initialShuffleInProgress = true;
+                        try {
+                            for (let i = 0; i < count; i++) {
+                                const startAt = Date.now() + 180;
+                                const seed = Math.floor(
+                                    Math.random() * 0xffffffff,
+                                );
+                                const deckOrder = deck.map((d) => d.id);
+                                shuffleArray(deckOrder);
+                                emitAction("shuffle", {
+                                    deckOrder,
+                                    startAt,
+                                    seed,
+                                });
+                                try {
+                                    document.getElementById("log").textContent =
+                                        `Shuffling... (${i + 1}/${count})`;
+                                } catch (e) {}
+                                await visualShuffle({
+                                    deckOrder,
+                                    startAt,
+                                    seed,
+                                    skipBroadcast: true,
+                                });
+                            }
+                            syncGameState();
+                            try {
+                                document.getElementById("log").textContent =
+                                    "Ready";
+                            } catch (e) {}
+                        } finally {
+                            initialShuffleInProgress = false;
+                            initialShuffleDone = true;
+                        }
+                    }
+
                     function computePlayerPositions(n, opts = {}) {
                         const arcDeg =
                             opts.arcDeg !== undefined ? opts.arcDeg : 180; // semicircle
@@ -5202,16 +5252,36 @@
                                     (o) => o.id === cardId,
                                 );
                                 // Never allow flipping deck/undealt cards or other players' cards.
-                                if (!obj) return;
-                                if (typeof obj.seat !== "number") return;
-                                if (obj.seat !== mySeat) return;
-                                // Sound on flip
+                                if (obj) {
+                                    if (typeof obj.seat !== "number") return;
+                                    if (obj.seat !== mySeat) return;
+                                    // Sound on flip
+                                    try {
+                                        flipCard(obj, 300);
+                                    } catch (e) {}
+                                    try {
+                                        playDealAt(obj.mesh);
+                                    } catch (e) {}
+                                    return;
+                                }
+
+                                const communityObj = communityCards.find(
+                                    (o) => o.id === cardId,
+                                );
+                                if (communityObj) return;
+
+                                const deckObj = cardObjects.find(
+                                    (o) => o.id === cardId,
+                                );
+                                if (!deckObj) return;
+                                if (!canUseTopControls()) return;
                                 try {
-                                    flipCard(obj, 300);
+                                    document.getElementById("log").textContent =
+                                        "Dealing poker hand…";
                                 } catch (e) {}
-                                try {
-                                    playDealAt(obj.mesh);
-                                } catch (e) {}
+                                dealPokerHand().then(() => {
+                                    syncGameState();
+                                });
                                 return;
                             }
                         }
@@ -5607,6 +5677,7 @@
                     }
                     createOddsUI();
                     document.getElementById("log").textContent = "Ready";
+                    runInitialShuffles();
 
                     // animation loop
                     // physics clock for chips simulation
