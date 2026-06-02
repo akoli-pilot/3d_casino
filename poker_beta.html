@@ -3,7 +3,7 @@
     3D Poker Game with Multiplayer Support
     
     To play with others, add ?room=YOUR_ROOM_NAME to the URL
-    Example: poker_beta.html?room=epstein
+    Example: https://www.cs.csub.edu/~akoli/Casino/poker_beta.html?room=epstein
 -->
 <html lang="en">
     <head>
@@ -295,7 +295,6 @@
             <button id="shuffleBtn">Shuffle</button>
             <button id="dealBtn">Deal</button>
             <button id="resetBtn">Reset Deck</button>
-            <button id="revealBtn">Reveal</button>
             <button id="confettiToggleBtn" type="button">Confetti: On</button>
             <!-- Chip spawn buttons -->
             <button id="chipBlackBtn" type="button">Black: $100</button>
@@ -2786,12 +2785,6 @@
                                     });
                                     shouldSyncAfter = true;
                                     break;
-                                case "revealAll":
-                                    executeRevealAll({
-                                        skipBroadcast: true,
-                                    });
-                                    shouldSyncAfter = true;
-                                    break;
                                 case "setConfettiEnabled":
                                     setConfettiEnabledState(
                                         payload.enabled === true,
@@ -5072,13 +5065,6 @@
                         } catch (e) {}
                     }
 
-                    async function revealAll() {
-                        const duration = 400 / FIXED_GAME_SPEED;
-                        for (const o of cardObjects) {
-                            flipCard(o, duration);
-                        }
-                    }
-
                     function executeResetDeck(opts = {}) {
                         const skipBroadcast =
                             opts.skipBroadcast || suppressNetworkActions;
@@ -5118,35 +5104,43 @@
                         if (!skipStateSync) syncGameState();
                     }
 
-                    function executeRevealAll(opts = {}) {
-                        const skipBroadcast =
-                            opts.skipBroadcast || suppressNetworkActions;
-                        try {
-                            document.getElementById("log").textContent =
-                                "Revealing…";
-                        } catch (e) {}
-                        revealAll();
-                        try {
-                            document.getElementById("log").textContent =
-                                "Reveal toggled";
-                        } catch (e) {}
-                        if (!skipBroadcast) emitAction("revealAll", {});
-                        syncGameState();
-                    }
+                    let flipAnimationsInFlight = 0;
 
                     function flipCard(o, duration = 400) {
+                        if (!o || !o.mesh) return Promise.resolve();
                         const start = o.mesh.rotation.y;
                         const target = start + Math.PI;
                         const t0 = performance.now();
-                        (function tick(now) {
-                            const p = Math.min(1, (now - t0) / duration);
-                            o.mesh.rotation.y =
-                                start + (target - start) * easeInOutCubic(p);
-                            if (p < 1) requestAnimationFrame(tick);
-                        })(performance.now());
+                        let settled = false;
+
                         o.faceUp = !o.faceUp;
                         recommendationRevision++;
                         lastRecommendationKey = "";
+                        flipAnimationsInFlight += 1;
+
+                        return new Promise((resolve) => {
+                            const finish = () => {
+                                if (settled) return;
+                                settled = true;
+                                flipAnimationsInFlight = Math.max(
+                                    0,
+                                    flipAnimationsInFlight - 1,
+                                );
+                                resolve();
+                            };
+
+                            (function tick(now) {
+                                const p = Math.min(1, (now - t0) / duration);
+                                o.mesh.rotation.y =
+                                    start +
+                                    (target - start) * easeInOutCubic(p);
+                                if (p < 1) {
+                                    requestAnimationFrame(tick);
+                                    return;
+                                }
+                                finish();
+                            })(performance.now());
+                        });
                     }
 
                     // helpers
@@ -5189,6 +5183,7 @@
                     function onPointerDown(e) {
                         if (e.target !== renderer.domElement) return;
                         if (mySeat < 0) return;
+                        if (flipAnimationsInFlight > 0) return;
                         mouse.x = (e.clientX / innerWidth) * 2 - 1;
                         mouse.y = -(e.clientY / innerHeight) * 2 + 1;
                         ray.setFromCamera(mouse, camera);
@@ -5266,12 +5261,6 @@
                         .addEventListener("click", () => {
                             if (!canUseTopControls()) return;
                             executeResetDeck();
-                        });
-                    document
-                        .getElementById("revealBtn")
-                        .addEventListener("click", () => {
-                            if (!canUseTopControls()) return;
-                            executeRevealAll();
                         });
 
                     // scan scene and safe cloning
