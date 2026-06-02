@@ -556,11 +556,23 @@
                         }
                     }
 
+                    function setConfettiEnabledState(enabled, opts = {}) {
+                        const skipBroadcast =
+                            opts.skipBroadcast || suppressNetworkActions;
+                        confettiEnabled = !!enabled;
+                        if (!confettiEnabled) stopConfetti();
+                        updateConfettiToggleButtonState();
+                        if (!skipBroadcast) {
+                            emitAction("setConfettiEnabled", {
+                                enabled: confettiEnabled,
+                            });
+                        }
+                    }
+
                     if (confettiToggleBtnEl) {
                         confettiToggleBtnEl.addEventListener("click", () => {
-                            confettiEnabled = !confettiEnabled;
-                            if (!confettiEnabled) stopConfetti();
-                            updateConfettiToggleButtonState();
+                            if (!canUseTopControls()) return;
+                            setConfettiEnabledState(!confettiEnabled);
                         });
                     }
                     updateConfettiToggleButtonState();
@@ -685,11 +697,33 @@
                     function updateMySeatDisplay() {
                         const el = document.getElementById("mySeatDisplay");
                         if (el) el.textContent = mySeat >= 0 ? `Player ${mySeat + 1}` : 'Connecting...';
+                        refreshTopControlsAccess();
                         updateChatComposerState();
+                    }
+
+                    function canUseTopControls() {
+                        return mySeat === 0;
+                    }
+
+                    function refreshTopControlsAccess() {
+                        const ui = document.querySelector(".ui");
+                        if (!ui) return;
+                        const allowed = canUseTopControls();
+                        ui.style.display = allowed ? "block" : "none";
+                        const controls = ui.querySelectorAll("button");
+                        controls.forEach((btn) => {
+                            btn.disabled = !allowed;
+                            if (!allowed) {
+                                btn.title = "Only Player 1 can use top controls";
+                            } else {
+                                btn.removeAttribute("title");
+                            }
+                        });
                     }
                     
                     document.getElementById("roomName").textContent = roomName;
                     document.getElementById("log").textContent = "Connecting to room...";
+                    refreshTopControlsAccess();
                     
                     try {
                         peer = new Peer(peerId, {
@@ -759,14 +793,30 @@
                                 if (assignedSeat >= 0) {
                                     conn.send({ type: 'seatAssignment', seat: assignedSeat });
                                 }
-                                // Send current game state to newly connected player
-                                if (typeof window._getCurrentGameState === 'function') {
-                                    try {
-                                        const currentState = window._getCurrentGameState();
-                                        conn.send(currentState);
-                                        console.log('Sent initial game state to new player');
-                                    } catch (e) {
-                                        console.warn('Failed to send initial state:', e);
+                                // Send full state to newly connected player
+                                try {
+                                    const fullState = buildFullStatePayload();
+                                    conn.send(fullState);
+                                    console.log('Sent full state to new player');
+                                } catch (e) {
+                                    console.warn('Failed to send full state:', e);
+                                    if (
+                                        typeof window._getCurrentGameState ===
+                                        'function'
+                                    ) {
+                                        try {
+                                            const currentState =
+                                                window._getCurrentGameState();
+                                            conn.send(currentState);
+                                            console.log(
+                                                'Sent initial game state to new player',
+                                            );
+                                        } catch (err) {
+                                            console.warn(
+                                                'Failed to send initial state:',
+                                                err,
+                                            );
+                                        }
                                     }
                                 }
                             });
@@ -857,14 +907,30 @@
                                     conn.send({ type: 'seatAssignment', seat: -1, message: 'Table is full' });
                                     console.log('No seats available for', conn.peer);
                                 }
-                                // Sync gamestate to player
-                                if (typeof window._getCurrentGameState === 'function') {
-                                    try {
-                                        const currentState = window._getCurrentGameState();
-                                        conn.send(currentState);
-                                        console.log('Sent initial game state to new player');
-                                    } catch (e) {
-                                        console.warn('Failed to send initial state:', e);
+                                // Sync full state to player
+                                try {
+                                    const fullState = buildFullStatePayload();
+                                    conn.send(fullState);
+                                    console.log('Sent full state to new player');
+                                } catch (e) {
+                                    console.warn('Failed to send full state:', e);
+                                    if (
+                                        typeof window._getCurrentGameState ===
+                                        'function'
+                                    ) {
+                                        try {
+                                            const currentState =
+                                                window._getCurrentGameState();
+                                            conn.send(currentState);
+                                            console.log(
+                                                'Sent initial game state to new player',
+                                            );
+                                        } catch (err) {
+                                            console.warn(
+                                                'Failed to send initial state:',
+                                                err,
+                                            );
+                                        }
                                     }
                                 }
                             });
@@ -931,7 +997,47 @@
                             if (data.type === 'join') {
                                 console.log('Player joined:', data.peerId);
                                 document.getElementById("log").textContent = `Player joined. ${connections.size + 1} players online.`;
+                            } else if (data.type === 'fullState') {
+                                const fromHost = fromPeer === hostPeerId;
+                                if (isHost && !fromHost) {
+                                    console.log(
+                                        "Ignoring client full state sync on host",
+                                        fromPeer,
+                                    );
+                                    return;
+                                }
+                                if (!isHost && !fromHost) {
+                                    console.log(
+                                        "Ignoring non-host full state sync",
+                                        fromPeer,
+                                    );
+                                    return;
+                                }
+                                console.log("Received full state sync", data);
+                                if (
+                                    typeof window._applyFullStateSync ===
+                                    'function'
+                                ) {
+                                    window._applyFullStateSync(data);
+                                } else {
+                                    window._pendingFullState = data;
+                                }
                             } else if (data.type === 'gameState') {
+                                const fromHost = fromPeer === hostPeerId;
+                                if (isHost && !fromHost) {
+                                    console.log(
+                                        "Ignoring client game state sync on host",
+                                        fromPeer,
+                                    );
+                                    return;
+                                }
+                                if (!isHost && !fromHost) {
+                                    console.log(
+                                        "Ignoring non-host game state sync",
+                                        fromPeer,
+                                    );
+                                    return;
+                                }
                                 console.log("Received game state sync", data);
                                 // Apply immediately if handler is available, otherwise store
                                 if (typeof window._applyGameStateSync === 'function') {
@@ -1211,16 +1317,47 @@
                         } catch (e) {}
                     }
 
+                    function setSharedMusicVolume(value, opts = {}) {
+                        const skipBroadcast =
+                            opts.skipBroadcast || suppressNetworkActions;
+                        applyBackgroundMusicVolume(value);
+                        if (musicVolumeSliderEl) {
+                            musicVolumeSliderEl.value =
+                                backgroundMusicVolume.toFixed(2);
+                        }
+                        if (!skipBroadcast) {
+                            emitAction("setMusicVolume", {
+                                value: backgroundMusicVolume,
+                            });
+                        }
+                    }
+
                     if (musicVolumeSliderEl) {
-                        const syncMusicVolume = (ev) => {
+                        const readMusicVolume = (ev) => {
                             const raw =
                                 ev && ev.target
                                     ? parseFloat(ev.target.value)
                                     : parseFloat(musicVolumeSliderEl.value);
-                            applyBackgroundMusicVolume(raw);
+                            return raw;
                         };
-                        musicVolumeSliderEl.addEventListener("input", syncMusicVolume);
-                        musicVolumeSliderEl.addEventListener("change", syncMusicVolume);
+                        musicVolumeSliderEl.addEventListener("input", (ev) => {
+                            if (canUseTopControls()) {
+                                setSharedMusicVolume(readMusicVolume(ev));
+                                return;
+                            }
+                            setSharedMusicVolume(readMusicVolume(ev), {
+                                skipBroadcast: true,
+                            });
+                        });
+                        musicVolumeSliderEl.addEventListener("change", (ev) => {
+                            if (!canUseTopControls()) {
+                                setSharedMusicVolume(readMusicVolume(ev), {
+                                    skipBroadcast: true,
+                                });
+                                return;
+                            }
+                            setSharedMusicVolume(readMusicVolume(ev));
+                        });
                     }
 
                     function _pickNextThemeIndex() {
@@ -1531,6 +1668,7 @@
                     let deck = deckIds.slice();
                     let textures = {}; // id -> Texture
                     let backTexture = null;
+                    let texturesLoaded = false;
 
                     const loader = new THREE.TextureLoader();
 
@@ -1905,8 +2043,8 @@
                         // normalize color and seat
                         const col = String(color).toLowerCase();
                         const seat =
-                            seatIndex === "dealer"
-                                ? "dealer"
+                            seatIndex === "dealer" || seatIndex === "pot"
+                                ? seatIndex
                                 : typeof seatIndex === "number"
                                   ? seatIndex
                                   : 0;
@@ -2251,6 +2389,7 @@
                     let lastRaiserSeat = -1; // track seat number of who raised last
                     let currentBet = 0; // track if there's a bet to call
                     let handComplete = false; // track if the current hand is finished
+                    let deckResetVersion = 0; // monotonic reset counter for resilient sync
                     
                     function getCurrentGameState() {
                         return {
@@ -2265,6 +2404,9 @@
                                 handComplete,
                                 currentPlayerIndex,
                                 playersActedThisRound: [...playersActedThisRound],
+                                deckResetVersion,
+                                musicVolume: backgroundMusicVolume,
+                                confettiEnabled,
                                 deckOrder: deck.map(d => d.id),
                                 dealtCards: dealtCards.map(c => ({
                                     id: c.id,
@@ -2276,6 +2418,56 @@
                                     faceUp: c.faceUp
                                 }))
                             }
+                        };
+                    }
+
+                    function buildFullStatePayload() {
+                        const base = getCurrentGameState();
+                        const dealtSnapshot = dealtCards.map((c, idx) => ({
+                            id: c.id,
+                            seat: c.seat,
+                            faceUp: c.faceUp === true,
+                            seatIndex: Number.isFinite(c._seatIndex)
+                                ? c._seatIndex
+                                : idx,
+                        }));
+                        const communitySnapshot = communityCards.map(
+                            (c, idx) => ({
+                                id: c.id,
+                                faceUp: c.faceUp !== false,
+                                index: Number.isFinite(c._seatIndex)
+                                    ? c._seatIndex
+                                    : idx,
+                            }),
+                        );
+                        const chipSnapshot = chips
+                            .map((c) => {
+                                if (!c || !c.mesh) return null;
+                                const pos = c.mesh.position;
+                                if (!pos) return null;
+                                return {
+                                    id: c.id,
+                                    color:
+                                        c.color ||
+                                        (c.mesh.userData &&
+                                            c.mesh.userData.chipColor) ||
+                                        "black",
+                                    seat: c.seat,
+                                    position: {
+                                        x: pos.x,
+                                        y: pos.y,
+                                        z: pos.z,
+                                    },
+                                };
+                            })
+                            .filter(Boolean);
+
+                        return {
+                            type: "fullState",
+                            state: base.state,
+                            dealtCards: dealtSnapshot,
+                            communityCards: communitySnapshot,
+                            chips: chipSnapshot,
                         };
                     }
                     
@@ -2299,6 +2491,26 @@
                                 if (Array.isArray(remote.playersActedThisRound)) {
                                     playersActedThisRound = new Set(remote.playersActedThisRound);
                                 }
+                                if (Number.isFinite(remote.musicVolume)) {
+                                    setSharedMusicVolume(remote.musicVolume, {
+                                        skipBroadcast: true,
+                                    });
+                                }
+                                if (typeof remote.confettiEnabled === "boolean") {
+                                    setConfettiEnabledState(remote.confettiEnabled, {
+                                        skipBroadcast: true,
+                                    });
+                                }
+                                if (
+                                    Number.isFinite(remote.deckResetVersion) &&
+                                    remote.deckResetVersion > deckResetVersion
+                                ) {
+                                    executeResetDeck({
+                                        skipBroadcast: true,
+                                        skipStateSync: true,
+                                        version: remote.deckResetVersion,
+                                    });
+                                }
                                 if (Array.isArray(remote.deckOrder)) {
                                     const mapped = remote.deckOrder.map(id => deckIds.find(d => d.id === id)).filter(Boolean);
                                     if (mapped.length) deck = mapped;
@@ -2315,15 +2527,215 @@
                                     updateOddsUI();
                                 }
                                 // Reevaluate controls for the current player
-                                if (!handComplete && activePlayers.length > 0) {
-                                    if (currentPlayerIndex < activePlayers.length) {
-                                        const activePlayer = activePlayers[currentPlayerIndex];
-                                        enablePlayerControls(true, activePlayer);
-                                    }
+                                const hasActiveTurn =
+                                    !handComplete &&
+                                    activePlayers.length > 0 &&
+                                    currentPlayerIndex >= 0 &&
+                                    currentPlayerIndex < activePlayers.length;
+                                waitingForPlayer = hasActiveTurn;
+                                if (hasActiveTurn) {
+                                    const activePlayer =
+                                        activePlayers[currentPlayerIndex];
+                                    currentPlayerSeat = activePlayer;
+                                    enablePlayerControls(true, activePlayer);
+                                } else {
+                                    enablePlayerControls(false);
                                 }
                             }
                         } catch (e) {
                             console.warn("Failed to apply game state:", e);
+                        }
+                    }
+
+                    function applyFullStateSync(data) {
+                        if (!data || data.type !== "fullState") return;
+                        if (!texturesLoaded) {
+                            window._pendingFullState = data;
+                            return;
+                        }
+                        const remote = data.state || {};
+                        suppressNetworkActions = true;
+                        try {
+                            if (Number.isFinite(remote.deckResetVersion)) {
+                                deckResetVersion = remote.deckResetVersion;
+                            }
+
+                            resetBurnEffects();
+                            dealtCards.forEach((o) => disposeCard(o));
+                            dealtCards.length = 0;
+                            communityCards.forEach((o) => disposeCard(o));
+                            communityCards.length = 0;
+                            cardObjects.forEach((o) => disposeCard(o));
+                            cardObjects.length = 0;
+
+                            if (Array.isArray(remote.deckOrder)) {
+                                const mapped = remote.deckOrder
+                                    .map((id) =>
+                                        deckIds.find((d) => d.id === id),
+                                    )
+                                    .filter(Boolean);
+                                deck = mapped.length
+                                    ? mapped
+                                    : deckIds.slice();
+                            } else {
+                                deck = deckIds.slice();
+                            }
+                            layoutDeckAt(0, BASE_DECK_Y, 4);
+
+                            const dealtSnapshot = Array.isArray(data.dealtCards)
+                                ? data.dealtCards
+                                : Array.isArray(remote.dealtCards)
+                                  ? remote.dealtCards
+                                  : [];
+                            const bySeat = new Map();
+                            dealtSnapshot.forEach((c, idx) => {
+                                if (!c || !c.id || typeof c.seat !== "number")
+                                    return;
+                                const seat = c.seat;
+                                const entry = {
+                                    id: c.id,
+                                    seat,
+                                    faceUp: c.faceUp === true,
+                                    seatIndex: Number.isFinite(c.seatIndex)
+                                        ? c.seatIndex
+                                        : idx,
+                                };
+                                if (!bySeat.has(seat)) bySeat.set(seat, []);
+                                bySeat.get(seat).push(entry);
+                            });
+
+                            bySeat.forEach((list, seat) => {
+                                list.sort(
+                                    (a, b) =>
+                                        (a.seatIndex || 0) -
+                                        (b.seatIndex || 0),
+                                );
+                                list.forEach((entry, i) => {
+                                    const seatIndex = Number.isFinite(
+                                        entry.seatIndex,
+                                    )
+                                        ? entry.seatIndex
+                                        : i;
+                                    const base = playerPositions[seat];
+                                    if (!base) return;
+                                    const obj = makeCardObject(entry.id);
+                                    if (!obj || !obj.mesh) return;
+                                    const pos = base.clone();
+                                    pos.y = BASE_DECK_Y;
+                                    pos.x +=
+                                        (seatIndex - 0.5) * CARD_W * 1.1;
+                                    const finalY =
+                                        BASE_DECK_Y + CARD_T / 2 + GAP * 0.5;
+                                    const faceUp = entry.faceUp === true;
+                                    const targetEuler = new THREE.Euler(
+                                        -Math.PI / 2,
+                                        faceUp ? 0 : Math.PI,
+                                        0,
+                                        "XYZ",
+                                    );
+                                    obj.id = entry.id;
+                                    obj.seat = seat;
+                                    obj._seatIndex = seatIndex;
+                                    obj.faceUp = faceUp;
+                                    obj.mesh.position.set(
+                                        pos.x,
+                                        finalY,
+                                        pos.z,
+                                    );
+                                    obj.mesh.quaternion.setFromEuler(targetEuler);
+                                    obj._baseOrigPosition = pos.clone();
+                                    obj.origPosition =
+                                        obj._baseOrigPosition.clone();
+                                    obj.origPosition.y = finalY;
+                                    obj.origQuaternion =
+                                        obj.mesh.quaternion.clone();
+                                    dealtCards.push(obj);
+                                });
+                            });
+
+                            const communitySnapshot = Array.isArray(
+                                data.communityCards,
+                            )
+                                ? data.communityCards
+                                : Array.isArray(remote.communityCards)
+                                  ? remote.communityCards
+                                  : [];
+                            communitySnapshot.forEach((c, idx) => {
+                                if (!c || !c.id) return;
+                                const index = Number.isFinite(c.index)
+                                    ? c.index
+                                    : idx;
+                                const obj = makeCardObject(c.id);
+                                if (!obj || !obj.mesh) return;
+                                const pos = communityPosition.clone();
+                                pos.x += (index - 2) * CARD_W * 1.1;
+                                pos.y = BASE_DECK_Y;
+                                const finalY =
+                                    BASE_DECK_Y + CARD_T / 2 + GAP * 0.5;
+                                const faceUp = c.faceUp !== false;
+                                const targetEuler = new THREE.Euler(
+                                    -Math.PI / 2,
+                                    faceUp ? 0 : Math.PI,
+                                    0,
+                                    "XYZ",
+                                );
+                                obj.id = c.id;
+                                obj.seat = "community";
+                                obj._seatIndex = index;
+                                obj.faceUp = faceUp;
+                                obj.mesh.position.set(
+                                    pos.x,
+                                    finalY,
+                                    pos.z,
+                                );
+                                obj.mesh.quaternion.setFromEuler(targetEuler);
+                                obj._baseOrigPosition = pos.clone();
+                                obj.origPosition =
+                                    obj._baseOrigPosition.clone();
+                                obj.origPosition.y = finalY;
+                                obj.origQuaternion =
+                                    obj.mesh.quaternion.clone();
+                                communityCards.push(obj);
+                            });
+
+                            chips.forEach((c) => {
+                                if (!c || !c.mesh) return;
+                                try {
+                                    if (c.mesh.parent)
+                                        c.mesh.parent.remove(c.mesh);
+                                } catch (e) {}
+                            });
+                            chips.length = 0;
+                            for (const key in chipStacks) delete chipStacks[key];
+                            nextStackId = 1;
+
+                            const chipSnapshot = Array.isArray(data.chips)
+                                ? data.chips
+                                : [];
+                            chipSnapshot.forEach((c) => {
+                                if (!c || !c.position) return;
+                                const chipObj = spawnChip(c.color, c.seat, {
+                                    id: c.id,
+                                    position: c.position,
+                                    skipBroadcast: true,
+                                });
+                                if (chipObj && chipObj.velocity) {
+                                    chipObj.velocity.set(0, 0, 0);
+                                }
+                            });
+                            manageChipStacks();
+
+                            applyGameStateSync({
+                                type: "gameState",
+                                state: remote,
+                            });
+                        } catch (e) {
+                            console.warn(
+                                "Failed to apply full state sync",
+                                e,
+                            );
+                        } finally {
+                            suppressNetworkActions = false;
                         }
                     }
                     
@@ -2332,13 +2744,20 @@
                         applyGameStateSync(window._pendingGameState);
                         delete window._pendingGameState;
                     }
+
+                    if (window._pendingFullState) {
+                        applyFullStateSync(window._pendingFullState);
+                        delete window._pendingFullState;
+                    }
                     
                     // Set up ongoing message processing
                     window._applyGameStateSync = applyGameStateSync;
+                    window._applyFullStateSync = applyFullStateSync;
 
                     async function applyRemoteAction(msg) {
                         if (!msg || msg.type !== "action") return;
                         const payload = msg.payload || {};
+                        let shouldSyncAfter = false;
                         suppressNetworkActions = true;
                         try {
                             switch (msg.action) {
@@ -2349,6 +2768,7 @@
                                         seed: payload.seed,
                                         skipBroadcast: true,
                                     });
+                                    shouldSyncAfter = true;
                                     break;
                                 case "deal":
                                     await dealPokerHand({
@@ -2357,6 +2777,33 @@
                                         startAt: payload.startAt,
                                         skipBroadcast: true,
                                     });
+                                    shouldSyncAfter = true;
+                                    break;
+                                case "resetDeck":
+                                    executeResetDeck({
+                                        skipBroadcast: true,
+                                        version: payload.version,
+                                    });
+                                    shouldSyncAfter = true;
+                                    break;
+                                case "revealAll":
+                                    executeRevealAll({
+                                        skipBroadcast: true,
+                                    });
+                                    shouldSyncAfter = true;
+                                    break;
+                                case "setConfettiEnabled":
+                                    setConfettiEnabledState(
+                                        payload.enabled === true,
+                                        { skipBroadcast: true },
+                                    );
+                                    shouldSyncAfter = true;
+                                    break;
+                                case "setMusicVolume":
+                                    setSharedMusicVolume(payload.value, {
+                                        skipBroadcast: true,
+                                    });
+                                    shouldSyncAfter = true;
                                     break;
                                 case "playerCheck":
                                     await playerCheck({
@@ -2364,6 +2811,7 @@
                                         force: true,
                                         skipBroadcast: true,
                                     });
+                                    shouldSyncAfter = true;
                                     break;
                                 case "playerBet":
                                     await playerBet({
@@ -2371,6 +2819,7 @@
                                         force: true,
                                         skipBroadcast: true,
                                     });
+                                    shouldSyncAfter = true;
                                     break;
                                 case "playerCall":
                                     await playerCall({
@@ -2378,6 +2827,7 @@
                                         force: true,
                                         skipBroadcast: true,
                                     });
+                                    shouldSyncAfter = true;
                                     break;
                                 case "playerFold":
                                     await playerFold({
@@ -2385,6 +2835,7 @@
                                         force: true,
                                         skipBroadcast: true,
                                     });
+                                    shouldSyncAfter = true;
                                     break;
                                 case "playerRaise":
                                     await playerRaise({
@@ -2392,6 +2843,7 @@
                                         force: true,
                                         skipBroadcast: true,
                                     });
+                                    shouldSyncAfter = true;
                                     break;
                                 case "chat":
                                     appendThreadMessage({
@@ -2408,27 +2860,19 @@
                         } finally {
                             suppressNetworkActions = false;
                         }
+
+                        // Host applies remote actions under suppression, then
+                        // publishes one authoritative snapshot after resolution.
+                        if (shouldSyncAfter && isHost) {
+                            syncGameState();
+                        }
                     }
                     
                     function syncGameState() {
                         if (suppressNetworkActions) return;
+                        if (!isHost) return;
                         try {
-                            const stateData = {
-                                type: "gameState",
-                                state: {
-                                    currentPlayerSeat,
-                                    dealerSeat,
-                                    gamePhase,
-                                    activePlayers: [...activePlayers],
-                                    currentBet,
-                                    lastRaiserSeat,
-                                    handComplete,
-                                    communityCards: communityCards.map(c => ({
-                                        id: c.id,
-                                        faceUp: c.faceUp
-                                    }))
-                                }
-                            };
+                            const stateData = getCurrentGameState();
                             broadcast(stateData);
                             console.log("Sent game state sync", stateData);
                         } catch (e) {
@@ -3081,6 +3525,9 @@
                                 console.error("setupPlayerTurn error", e);
                             }
                         }
+
+                        // Broadcast resolved turn state after next seat/phase is set.
+                        syncGameState();
                     }
 
                     async function playerCheck(opts = {}) {
@@ -3100,7 +3547,6 @@
                         } catch (e) {}
                         if (!skipBroadcast)
                             emitAction("playerCheck", { seat });
-                        syncGameState();
                         await finishPlayerTurn();
                     }
 
@@ -3137,7 +3583,6 @@
                         // Clear previous actions
                         playersActedThisRound.clear();
                         playersActedThisRound.add(seat);
-                        syncGameState();
                         await finishPlayerTurn();
                     }
 
@@ -3166,7 +3611,6 @@
                             "pot",
                             { duration: 600 },
                         );
-                        syncGameState();
                         await finishPlayerTurn();
                     }
 
@@ -3195,8 +3639,6 @@
                             (p) => p !== seat,
                         );
                         playersActedThisRound.delete(seat);
-                        
-                        syncGameState();
 
                         // Adjust currentPlayerIndex after removal
                         if (foldedIndex < currentPlayerIndex) {
@@ -3209,6 +3651,7 @@
 
                         // Check if only one player remains
                         if (activePlayers.length === 1) {
+                            handComplete = true;
                             try {
                                 document.getElementById("log").textContent =
                                     `Player ${activePlayers[0] + 1} wins by default!`;
@@ -3231,6 +3674,7 @@
                                         activePlayers[0],
                                     );
                             }
+                            syncGameState();
                             return;
                         }
 
@@ -3261,6 +3705,9 @@
                                 console.error("setupPlayerTurn error", e);
                             }
                         }
+
+                        // Broadcast resolved state after fold flow settles.
+                        syncGameState();
                     }
 
                     async function playerRaise(opts = {}) {
@@ -3286,7 +3733,6 @@
                         // Keep round actions accumulated so the round can close
                         // even when multiple players choose raise in sequence.
                         playersActedThisRound.add(seat);
-                        syncGameState();
                         await finishPlayerTurn();
                     }
 
@@ -4633,6 +5079,61 @@
                         }
                     }
 
+                    function executeResetDeck(opts = {}) {
+                        const skipBroadcast =
+                            opts.skipBroadcast || suppressNetworkActions;
+                        const skipStateSync =
+                            opts.skipStateSync || suppressNetworkActions;
+                        const requestedVersion = Number(opts.version);
+                        if (Number.isFinite(requestedVersion)) {
+                            deckResetVersion = Math.max(
+                                deckResetVersion,
+                                Math.floor(requestedVersion),
+                            );
+                        } else {
+                            deckResetVersion += 1;
+                        }
+                        resetBurnEffects();
+                        deck = deckIds.slice();
+                        // dispose dealt cards and deck objects
+                        dealtCards.forEach((o) => disposeCard(o));
+                        dealtCards.length = 0;
+                        // dispose community cards
+                        if (communityCards && communityCards.length > 0) {
+                            communityCards.forEach((o) => disposeCard(o));
+                            communityCards.length = 0;
+                        }
+                        // dispose existing deck objects
+                        cardObjects.forEach((o) => disposeCard(o));
+                        cardObjects.length = 0;
+                        layoutDeckAt(0, BASE_DECK_Y, 4);
+                        try {
+                            document.getElementById("log").textContent =
+                                "Deck reset";
+                        } catch (e) {}
+                        if (!skipBroadcast)
+                            emitAction("resetDeck", {
+                                version: deckResetVersion,
+                            });
+                        if (!skipStateSync) syncGameState();
+                    }
+
+                    function executeRevealAll(opts = {}) {
+                        const skipBroadcast =
+                            opts.skipBroadcast || suppressNetworkActions;
+                        try {
+                            document.getElementById("log").textContent =
+                                "Revealing…";
+                        } catch (e) {}
+                        revealAll();
+                        try {
+                            document.getElementById("log").textContent =
+                                "Reveal toggled";
+                        } catch (e) {}
+                        if (!skipBroadcast) emitAction("revealAll", {});
+                        syncGameState();
+                    }
+
                     function flipCard(o, duration = 400) {
                         const start = o.mesh.rotation.y;
                         const target = start + Math.PI;
@@ -4686,6 +5187,8 @@
                     const mouse = new THREE.Vector2();
                     window.addEventListener("pointerdown", onPointerDown);
                     function onPointerDown(e) {
+                        if (e.target !== renderer.domElement) return;
+                        if (mySeat < 0) return;
                         mouse.x = (e.clientX / innerWidth) * 2 - 1;
                         mouse.y = -(e.clientY / innerHeight) * 2 + 1;
                         ray.setFromCamera(mouse, camera);
@@ -4702,10 +5205,11 @@
                                 const cardId = m.userData.cardId;
                                 const obj = dealtCards.find(
                                     (o) => o.id === cardId,
-                                ) ||
-                                    cardObjects.find(
-                                        (o) => o.id === cardId,
-                                    ) || { mesh: m, id: cardId };
+                                );
+                                // Never allow flipping deck/undealt cards or other players' cards.
+                                if (!obj) return;
+                                if (typeof obj.seat !== "number") return;
+                                if (obj.seat !== mySeat) return;
                                 // Sound on flip
                                 try {
                                     flipCard(obj, 300);
@@ -4722,6 +5226,7 @@
                     document
                         .getElementById("shuffleBtn")
                         .addEventListener("click", async () => {
+                            if (!canUseTopControls()) return;
                             try {
                                 document.getElementById("log").textContent =
                                     "Shuffling…";
@@ -4750,6 +5255,7 @@
                     document
                         .getElementById("dealBtn")
                         .addEventListener("click", async () => {
+                            if (!canUseTopControls()) return;
                             document.getElementById("log").textContent =
                                 "Dealing poker hand…";
                             await dealPokerHand();
@@ -4758,33 +5264,14 @@
                     document
                         .getElementById("resetBtn")
                         .addEventListener("click", () => {
-                            resetBurnEffects();
-                            deck = deckIds.slice();
-                            // dispose dealt cards and deck objects
-                            dealtCards.forEach((o) => disposeCard(o));
-                            dealtCards.length = 0;
-                            // dispose community cards
-                            if (communityCards && communityCards.length > 0) {
-                                communityCards.forEach((o) => disposeCard(o));
-                                communityCards.length = 0;
-                            }
-                            // dispose existing deck objects
-                            cardObjects.forEach((o) => disposeCard(o));
-                            cardObjects.length = 0;
-                            layoutDeckAt(0, BASE_DECK_Y, 4);
-                            document.getElementById("log").textContent =
-                                "Deck reset";
-                            syncGameState();
+                            if (!canUseTopControls()) return;
+                            executeResetDeck();
                         });
                     document
                         .getElementById("revealBtn")
                         .addEventListener("click", () => {
-                            document.getElementById("log").textContent =
-                                "Revealing…";
-                            revealAll();
-                            document.getElementById("log").textContent =
-                                "Reveal toggled";
-                            syncGameState();
+                            if (!canUseTopControls()) return;
+                            executeRevealAll();
                         });
 
                     // scan scene and safe cloning
@@ -5122,7 +5609,13 @@
 
                     // initial load
                     await loadAllTextures();
-                    layoutDeckAt(0, BASE_DECK_Y, 4);
+                    texturesLoaded = true;
+                    if (window._pendingFullState) {
+                        applyFullStateSync(window._pendingFullState);
+                        delete window._pendingFullState;
+                    } else {
+                        layoutDeckAt(0, BASE_DECK_Y, 4);
+                    }
                     createOddsUI();
                     document.getElementById("log").textContent = "Ready";
 
