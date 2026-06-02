@@ -395,6 +395,7 @@
                     let mySeat = -1;
                     const seatAssignments = new Map();
                     const MAX_SEATS = 4;
+                    let lastKnownPlayerCount = null;
                     const threadLogMessagesEl = document.getElementById("threadLogMessages");
                     const threadInputEl = document.getElementById("threadInput");
                     const threadSendBtnEl = document.getElementById("threadSendBtn");
@@ -784,7 +785,6 @@
                         peer.on('connection', (conn) => {
                             console.log('Incoming connection from:', conn.peer);
                             connections.set(conn.peer, conn);
-                            updatePlayerCount();
                             
                             conn.on('open', () => {
                                 // Assign a seat to the new player
@@ -792,6 +792,7 @@
                                 if (assignedSeat >= 0) {
                                     conn.send({ type: 'seatAssignment', seat: assignedSeat });
                                 }
+                                updatePlayerCount();
                                 // Send full state to newly connected player
                                 try {
                                     const fullState = buildFullStatePayload();
@@ -895,7 +896,6 @@
                         peer.on('connection', (conn) => {
                             console.log('Player connected:', conn.peer);
                             connections.set(conn.peer, conn);
-                            updatePlayerCount();
                             
                             conn.on('open', () => {
                                 // Assign a seat to new player
@@ -907,6 +907,7 @@
                                     conn.send({ type: 'seatAssignment', seat: -1, message: 'Table is full' });
                                     console.log('No seats available for', conn.peer);
                                 }
+                                updatePlayerCount();
                                 // Sync full state to player
                                 try {
                                     const fullState = buildFullStatePayload();
@@ -953,9 +954,45 @@
                         });
                     }
                     
-                    function updatePlayerCount() {
-                        const count = connections.size + 1; // +1 for self
-                        document.getElementById("playerCount").textContent = count;
+                    function setPlayerCountDisplay(count) {
+                        const el = document.getElementById("playerCount");
+                        if (!el) return;
+                        const safeCount = Number.isFinite(count) ? count : 0;
+                        el.textContent = safeCount;
+                    }
+
+                    function getSeatedPlayerCount() {
+                        const seats = new Set();
+                        seatAssignments.forEach((seat) => {
+                            if (
+                                Number.isFinite(seat) &&
+                                seat >= 0 &&
+                                seat < MAX_SEATS
+                            ) {
+                                seats.add(seat);
+                            }
+                        });
+                        return seats.size;
+                    }
+
+                    function updatePlayerCount(opts = {}) {
+                        const skipBroadcast = opts.skipBroadcast === true;
+                        let count = 0;
+
+                        if (isHost) {
+                            count = getSeatedPlayerCount();
+                            lastKnownPlayerCount = count;
+                            if (!skipBroadcast) {
+                                broadcast({ type: "playerCount", count });
+                            }
+                        } else if (Number.isFinite(lastKnownPlayerCount)) {
+                            count = lastKnownPlayerCount;
+                        } else {
+                            count = mySeat >= 0 ? 1 : 0;
+                        }
+
+                        setPlayerCountDisplay(count);
+                        return count;
                     }
                     
                     function broadcastToOthers(data, excludePeer) {
@@ -996,7 +1033,18 @@
                         try {
                             if (data.type === 'join') {
                                 console.log('Player joined:', data.peerId);
-                                document.getElementById("log").textContent = `Player joined. ${connections.size + 1} players online.`;
+                                const knownCount = isHost
+                                    ? getSeatedPlayerCount()
+                                    : lastKnownPlayerCount;
+                                const suffix = Number.isFinite(knownCount)
+                                    ? ` ${knownCount} players online.`
+                                    : "";
+                                document.getElementById("log").textContent = `Player joined.${suffix}`;
+                            } else if (data.type === 'playerCount') {
+                                if (!isHost && Number.isFinite(data.count)) {
+                                    lastKnownPlayerCount = data.count;
+                                    setPlayerCountDisplay(lastKnownPlayerCount);
+                                }
                             } else if (data.type === 'fullState') {
                                 const fromHost = fromPeer === hostPeerId;
                                 if (isHost && !fromHost) {
@@ -1051,6 +1099,7 @@
                             } else if (data.type === 'seatAssignment') {
                                 mySeat = data.seat;
                                 updateMySeatDisplay();
+                                updatePlayerCount({ skipBroadcast: true });
                                 if (mySeat >= 0) {
                                     console.log('Assigned to seat', mySeat);
                                     document.getElementById("log").textContent = `Connected to room: ${roomName} (You are Player ${mySeat + 1})`;
