@@ -3366,10 +3366,8 @@
 
                         await wait(500);
 
-                        const allPlayersActed = activePlayers.every((p) =>
-                            playersActedThisRound.has(p),
-                        );
-                        const bettingComplete = allPlayersActed;
+                        const currentIndex = activePlayers.indexOf(currentPlayerSeat);
+                        const bettingComplete = activePlayers.every((p) => playersActedThisRound.has(p));
 
                         if (bettingComplete) {
                             playersActedThisRound.clear();
@@ -3380,19 +3378,19 @@
                                 await advanceGamePhase();
                             } catch (e) {
                                 console.error("advanceGamePhase error", e);
+                                syncGameState();
                             }
                         } else {
                             currentPlayerIndex =
-                                (currentPlayerIndex + 1) % activePlayers.length;
+                                (currentIndex + 1) % activePlayers.length;
                             await wait(300);
                             try {
                                 await setupPlayerTurn();
                             } catch (e) {
                                 console.error("setupPlayerTurn error", e);
                             }
+                            syncGameState();
                         }
-
-                        syncGameState();
                     }
 
                     async function playerCheck(opts = {}) {
@@ -3443,8 +3441,6 @@
                         );
                         currentBet = 1;
                         lastRaiserSeat = seat;
-                        playersActedThisRound.clear();
-                        playersActedThisRound.add(seat);
                         await finishPlayerTurn();
                     }
 
@@ -3538,10 +3534,7 @@
                         waitingForPlayer = false;
                         enablePlayerControls(false);
 
-                        const allPlayersActed = activePlayers.every((p) =>
-                            playersActedThisRound.has(p),
-                        );
-                        const bettingComplete = allPlayersActed;
+                        const bettingComplete = activePlayers.every((p) => playersActedThisRound.has(p));
                         if (bettingComplete) {
                             playersActedThisRound.clear();
                             lastRaiserSeat = -1;
@@ -3551,6 +3544,7 @@
                                 await advanceGamePhase();
                             } catch (e) {
                                 console.error("advanceGamePhase error", e);
+                                syncGameState();
                             }
                         } else {
                             await wait(300);
@@ -3559,9 +3553,8 @@
                             } catch (e) {
                                 console.error("setupPlayerTurn error", e);
                             }
+                            syncGameState();
                         }
-
-                        syncGameState();
                     }
 
                     async function playerRaise(opts = {}) {
@@ -3583,7 +3576,6 @@
                             emitAction("playerRaise", { seat });
                         currentBet = 1;
                         lastRaiserSeat = seat;
-                        playersActedThisRound.add(seat);
                         await finishPlayerTurn();
                     }
 
@@ -4708,9 +4700,9 @@
                                 document.getElementById("log").textContent =
                                     "Flop dealt - betting round begins";
                             } catch (e) {}
-                            syncGameState();
                             await wait(800);
                             await setupPlayerTurn();
+                            syncGameState();
                         } else if (gamePhase === "flop") {
                             gamePhase = "turn";
                             playersActedThisRound.clear();
@@ -4722,9 +4714,9 @@
                                 document.getElementById("log").textContent =
                                     "Turn dealt - betting round begins";
                             } catch (e) {}
-                            syncGameState();
                             await wait(800);
                             await setupPlayerTurn();
+                            syncGameState();
                         } else if (gamePhase === "turn") {
                             gamePhase = "river";
                             playersActedThisRound.clear();
@@ -4736,9 +4728,9 @@
                                 document.getElementById("log").textContent =
                                     "River dealt - final betting round";
                             } catch (e) {}
-                            syncGameState();
                             await wait(800);
                             await setupPlayerTurn();
+                            syncGameState();
                         } else if (gamePhase === "river") {
                             gamePhase = "showdown";
                             syncGameState();
