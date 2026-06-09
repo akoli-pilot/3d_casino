@@ -134,6 +134,49 @@
                 display: flex;
             }
 
+            /* Bet / Raise amount picker */
+            .amountPicker {
+                display: flex;
+                align-items: center;
+                gap: 3px;
+                background: rgba(7, 28, 31, 0.88);
+                border: 1px solid rgba(143, 210, 216, 0.35);
+                border-radius: 6px;
+                padding: 2px 4px;
+            }
+            .amountPicker button {
+                background: #0d6b75 !important;
+                border: 0 !important;
+                width: 22px !important;
+                height: 22px !important;
+                padding: 0 !important;
+                border-radius: 4px !important;
+                color: white !important;
+                font-size: 14px !important;
+                line-height: 1 !important;
+                cursor: pointer !important;
+                box-shadow: none !important;
+                flex-shrink: 0;
+            }
+            .amountPicker button:hover {
+                background: #0f7d88 !important;
+                transform: scale(1.05) !important;
+            }
+            .amountPicker button:disabled {
+                opacity: 0.4 !important;
+                cursor: not-allowed !important;
+                transform: none !important;
+            }
+            .amountPicker .amountDisplay {
+                min-width: 44px;
+                text-align: center;
+                font-size: 12px;
+                font-weight: 700;
+                color: #d9f4f6;
+                pointer-events: none;
+                user-select: none;
+            }
+
             /* Thread log + chat */
             #threadLogPanel {
                 position: fixed;
@@ -336,30 +379,70 @@
         <div id="player0Actions" class="playerActions">
             <button data-action="fold">Fold</button>
             <button data-action="check">Check</button>
-            <button data-action="bet">Bet</button>
+            <div class="amountPicker" id="betPicker0">
+                <button data-picker="bet-down" title="−$5">▼</button>
+                <span class="amountDisplay" data-picker-display="bet">$10</span>
+                <button data-picker="bet-up" title="+$5">▲</button>
+                <button data-action="bet">Bet</button>
+            </div>
             <button data-action="call">Call</button>
-            <button data-action="raise">Raise</button>
+            <div class="amountPicker" id="raisePicker0">
+                <button data-picker="raise-down" title="−$5">▼</button>
+                <span class="amountDisplay" data-picker-display="raise">$10</span>
+                <button data-picker="raise-up" title="+$5">▲</button>
+                <button data-action="raise">Raise</button>
+            </div>
         </div>
         <div id="player1Actions" class="playerActions">
             <button data-action="fold">Fold</button>
             <button data-action="check">Check</button>
-            <button data-action="bet">Bet</button>
+            <div class="amountPicker" id="betPicker1">
+                <button data-picker="bet-down" title="−$5">▼</button>
+                <span class="amountDisplay" data-picker-display="bet">$10</span>
+                <button data-picker="bet-up" title="+$5">▲</button>
+                <button data-action="bet">Bet</button>
+            </div>
             <button data-action="call">Call</button>
-            <button data-action="raise">Raise</button>
+            <div class="amountPicker" id="raisePicker1">
+                <button data-picker="raise-down" title="−$5">▼</button>
+                <span class="amountDisplay" data-picker-display="raise">$10</span>
+                <button data-picker="raise-up" title="+$5">▲</button>
+                <button data-action="raise">Raise</button>
+            </div>
         </div>
         <div id="player2Actions" class="playerActions">
             <button data-action="fold">Fold</button>
             <button data-action="check">Check</button>
-            <button data-action="bet">Bet</button>
+            <div class="amountPicker" id="betPicker2">
+                <button data-picker="bet-down" title="−$5">▼</button>
+                <span class="amountDisplay" data-picker-display="bet">$10</span>
+                <button data-picker="bet-up" title="+$5">▲</button>
+                <button data-action="bet">Bet</button>
+            </div>
             <button data-action="call">Call</button>
-            <button data-action="raise">Raise</button>
+            <div class="amountPicker" id="raisePicker2">
+                <button data-picker="raise-down" title="−$5">▼</button>
+                <span class="amountDisplay" data-picker-display="raise">$10</span>
+                <button data-picker="raise-up" title="+$5">▲</button>
+                <button data-action="raise">Raise</button>
+            </div>
         </div>
         <div id="player3Actions" class="playerActions">
             <button data-action="fold">Fold</button>
             <button data-action="check">Check</button>
-            <button data-action="bet">Bet</button>
+            <div class="amountPicker" id="betPicker3">
+                <button data-picker="bet-down" title="−$5">▼</button>
+                <span class="amountDisplay" data-picker-display="bet">$10</span>
+                <button data-picker="bet-up" title="+$5">▲</button>
+                <button data-action="bet">Bet</button>
+            </div>
             <button data-action="call">Call</button>
-            <button data-action="raise">Raise</button>
+            <div class="amountPicker" id="raisePicker3">
+                <button data-picker="raise-down" title="−$5">▼</button>
+                <span class="amountDisplay" data-picker-display="raise">$10</span>
+                <button data-picker="raise-up" title="+$5">▲</button>
+                <button data-action="raise">Raise</button>
+            </div>
         </div>
 
         <script type="importmap">
@@ -2119,8 +2202,12 @@
                                 chipObj.mesh.userData.chipColor) ||
                             "black";
                         const destStack = getOrCreateStack(toSeat, color);
+
+                        // Reserve the slot NOW (synchronously) so parallel transfers
+                        // each get a distinct targetIndex and don't all land on index 0.
+                        const targetIndex = destStack.members.length + (destStack.pending || 0);
                         destStack.pending = (destStack.pending || 0) + 1;
-                        const targetIndex = destStack.members.length;
+
                         const target = destStack.anchor.clone();
                         const jitter = getStackJitter(targetIndex);
                         target.x += jitter.x;
@@ -2237,6 +2324,8 @@
                     }
 
                     // Poker per player action buttons
+                    const BIG_BLIND = 10;       // $10 blue chip = big blind
+                    const BET_STEP = 5;         // increment/decrement step
                     const playerActionContainers = [];
                     for (let i = 0; i < 4; i++) {
                         const container = document.getElementById(
@@ -2260,7 +2349,33 @@
                                 raiseBtn: container.querySelector(
                                     '[data-action="raise"]',
                                 ),
+                                betPicker: container.querySelector(`#betPicker${i}`),
+                                raisePicker: container.querySelector(`#raisePicker${i}`),
+                                betDisplay: container.querySelector(`#betPicker${i} [data-picker-display="bet"]`),
+                                raiseDisplay: container.querySelector(`#raisePicker${i} [data-picker-display="raise"]`),
+                                betDownBtn: container.querySelector(`#betPicker${i} [data-picker="bet-down"]`),
+                                betUpBtn: container.querySelector(`#betPicker${i} [data-picker="bet-up"]`),
+                                raiseDownBtn: container.querySelector(`#raisePicker${i} [data-picker="raise-down"]`),
+                                raiseUpBtn: container.querySelector(`#raisePicker${i} [data-picker="raise-up"]`),
+                                _betAmount: BIG_BLIND,
+                                _raiseAmount: BIG_BLIND,
                             });
+                        }
+                    }
+
+                    function refreshPickerUI(playerBtns) {
+                        if (!playerBtns) return;
+                        if (playerBtns.betDisplay) {
+                            playerBtns.betDisplay.textContent = `$${playerBtns._betAmount}`;
+                        }
+                        if (playerBtns.betDownBtn) {
+                            playerBtns.betDownBtn.disabled = playerBtns._betAmount <= BIG_BLIND;
+                        }
+                        if (playerBtns.raiseDisplay) {
+                            playerBtns.raiseDisplay.textContent = `$${playerBtns._raiseAmount}`;
+                        }
+                        if (playerBtns.raiseDownBtn) {
+                            playerBtns.raiseDownBtn.disabled = playerBtns._raiseAmount <= lastBetOrRaiseAmount;
                         }
                     }
                     let currentPlayerSeat = 0;
@@ -2278,6 +2393,8 @@
                     const INITIAL_SHUFFLE_COUNT = 7;
                     let initialShuffleDone = false;
                     let initialShuffleInProgress = false;
+                    let currentBetAmount = BIG_BLIND;   // $ amount of the active bet this street
+                    let lastBetOrRaiseAmount = BIG_BLIND; // minimum raise reference
                     
                     function getCurrentGameState() {
                         return {
@@ -2288,6 +2405,8 @@
                                 gamePhase,
                                 activePlayers: [...activePlayers],
                                 currentBet,
+                                currentBetAmount,
+                                lastBetOrRaiseAmount,
                                 lastRaiserSeat,
                                 handComplete,
                                 currentPlayerIndex,
@@ -2371,6 +2490,8 @@
                                 if (remote.gamePhase) gamePhase = remote.gamePhase;
                                 if (Array.isArray(remote.activePlayers)) activePlayers = [...remote.activePlayers];
                                 if (remote.currentBet !== undefined) currentBet = remote.currentBet;
+                                if (Number.isFinite(remote.currentBetAmount)) currentBetAmount = remote.currentBetAmount;
+                                if (Number.isFinite(remote.lastBetOrRaiseAmount)) lastBetOrRaiseAmount = remote.lastBetOrRaiseAmount;
                                 if (remote.lastRaiserSeat !== undefined) lastRaiserSeat = remote.lastRaiserSeat;
                                 if (remote.handComplete !== undefined) handComplete = remote.handComplete;
                                 if (remote.currentPlayerIndex !== undefined) currentPlayerIndex = remote.currentPlayerIndex;
@@ -2707,6 +2828,7 @@
                                 case "playerBet":
                                     await playerBet({
                                         seat: payload.seat,
+                                        amount: payload.amount,
                                         force: true,
                                         skipBroadcast: true,
                                     });
@@ -2731,6 +2853,7 @@
                                 case "playerRaise":
                                     await playerRaise({
                                         seat: payload.seat,
+                                        amount: payload.amount,
                                         force: true,
                                         skipBroadcast: true,
                                     });
@@ -2770,6 +2893,38 @@
                     }
 
                     // Post small/big blinds before each deal
+                    // Chip denominations, largest first (greedy breakdown)
+                    const CHIP_DENOMS = [
+                        { color: "black", value: 100 },
+                        { color: "green", value: 25  },
+                        { color: "blue",  value: 10  },
+                        { color: "red",   value: 5   },
+                    ];
+
+                    // Spawn chips at `seat` matching `amount`, transfer them all to the pot.
+                    // Uses the fewest chips possible (largest denomination first).
+                    async function spawnChipsForAmount(amount, seat, { skipBroadcast = false } = {}) {
+                        let remaining = Math.round(amount);
+                        const spawned = [];
+                        for (const { color, value } of CHIP_DENOMS) {
+                            while (remaining >= value) {
+                                spawned.push(spawnChip(color, seat, { skipBroadcast: true }));
+                                remaining -= value;
+                            }
+                        }
+                        // Remainder < $5: spawn one red as a fractional stand-in
+                        if (remaining > 0) {
+                            spawned.push(spawnChip("red", seat, { skipBroadcast: true }));
+                        }
+                        if (spawned.length === 0) return;
+                        await wait(200);
+                        await Promise.all(
+                            spawned.map(chip =>
+                                animateSingleChipTransfer(chip, "pot", { duration: 600 })
+                            )
+                        );
+                    }
+
                     async function postBlinds(opts = {}) {
                         const skipBroadcast = opts.skipBroadcast || suppressNetworkActions;
                         const smallSeat = (dealerSeat + 1) % seatCount;
@@ -3096,6 +3251,11 @@
                         playerBtns.container.classList.add("active");
                         playerBtns.foldBtn.disabled = false;
 
+                        // Reset picker amounts for this turn
+                        playerBtns._betAmount = BIG_BLIND;
+                        playerBtns._raiseAmount = lastBetOrRaiseAmount;
+                        refreshPickerUI(playerBtns);
+
                         if (currentBet === 0) {
                             playerBtns.checkBtn.disabled = false;
                             playerBtns.betBtn.disabled = false;
@@ -3375,6 +3535,8 @@
                             lastRaiserSeat = -1;
                             currentPlayerIndex = 0;
                             currentBet = 0;
+                            currentBetAmount = 0;
+                            lastBetOrRaiseAmount = BIG_BLIND;
                             try {
                                 await advanceGamePhase();
                             } catch (e) {
@@ -3425,22 +3587,19 @@
                         if (!force && !waitingForPlayer) return;
                         currentPlayerSeat = seat;
                         if (force) waitingForPlayer = true;
+                        const amount = typeof opts.amount === "number" && opts.amount >= BIG_BLIND
+                            ? opts.amount
+                            : (playerActionContainers[seat] ? playerActionContainers[seat]._betAmount : BIG_BLIND);
                         try {
                             document.getElementById("log").textContent =
-                                `Player ${seat + 1} bets`;
+                                `Player ${seat + 1} bets $${amount}`;
                         } catch (e) {}
                         if (!skipBroadcast)
-                            emitAction("playerBet", { seat });
-                        spawnChip("blue", seat, {
-                            skipBroadcast: true,
-                        });
-                        await wait(200);
-                        await animateChipTransferBetweenSeats(
-                            seat,
-                            "pot",
-                            { duration: 600 },
-                        );
+                            emitAction("playerBet", { seat, amount });
+                        await spawnChipsForAmount(amount, seat, { skipBroadcast: true });
                         currentBet = 1;
+                        currentBetAmount = amount;
+                        lastBetOrRaiseAmount = amount;
                         lastRaiserSeat = seat;
                         await finishPlayerTurn();
                     }
@@ -3541,6 +3700,8 @@
                             lastRaiserSeat = -1;
                             currentPlayerIndex = 0;
                             currentBet = 0;
+                            currentBetAmount = 0;
+                            lastBetOrRaiseAmount = BIG_BLIND;
                             try {
                                 await advanceGamePhase();
                             } catch (e) {
@@ -3569,13 +3730,21 @@
                         if (!force && !waitingForPlayer) return;
                         currentPlayerSeat = seat;
                         if (force) waitingForPlayer = true;
+                        const minRaise = lastBetOrRaiseAmount;
+                        const rawAmount = typeof opts.amount === "number"
+                            ? opts.amount
+                            : (playerActionContainers[seat] ? playerActionContainers[seat]._raiseAmount : minRaise);
+                        const amount = Math.max(rawAmount, minRaise);
                         try {
                             document.getElementById("log").textContent =
-                                `Player ${seat + 1} raises`;
+                                `Player ${seat + 1} raises to $${amount}`;
                         } catch (e) {}
                         if (!skipBroadcast)
-                            emitAction("playerRaise", { seat });
+                            emitAction("playerRaise", { seat, amount });
+                        await spawnChipsForAmount(amount, seat, { skipBroadcast: true });
                         currentBet = 1;
+                        currentBetAmount = amount;
+                        lastBetOrRaiseAmount = amount;
                         lastRaiserSeat = seat;
                         await finishPlayerTurn();
                     }
@@ -3608,6 +3777,28 @@
                                     "click",
                                     () => playerRaise(),
                                 );
+                            // Bet picker arrows
+                            if (playerBtns.betDownBtn)
+                                playerBtns.betDownBtn.addEventListener("click", () => {
+                                    playerBtns._betAmount = Math.max(BIG_BLIND, playerBtns._betAmount - BET_STEP);
+                                    refreshPickerUI(playerBtns);
+                                });
+                            if (playerBtns.betUpBtn)
+                                playerBtns.betUpBtn.addEventListener("click", () => {
+                                    playerBtns._betAmount += BET_STEP;
+                                    refreshPickerUI(playerBtns);
+                                });
+                            // Raise picker arrows
+                            if (playerBtns.raiseDownBtn)
+                                playerBtns.raiseDownBtn.addEventListener("click", () => {
+                                    playerBtns._raiseAmount = Math.max(lastBetOrRaiseAmount, playerBtns._raiseAmount - BET_STEP);
+                                    refreshPickerUI(playerBtns);
+                                });
+                            if (playerBtns.raiseUpBtn)
+                                playerBtns.raiseUpBtn.addEventListener("click", () => {
+                                    playerBtns._raiseAmount += BET_STEP;
+                                    refreshPickerUI(playerBtns);
+                                });
                         });
                     } catch (e) {
                         console.warn("Player control binding failed", e);
