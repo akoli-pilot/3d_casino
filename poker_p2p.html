@@ -3095,16 +3095,17 @@
 
                         playerBtns.container.classList.add("active");
                         playerBtns.foldBtn.disabled = false;
-                        playerBtns.raiseBtn.disabled = false;
 
                         if (currentBet === 0) {
                             playerBtns.checkBtn.disabled = false;
                             playerBtns.betBtn.disabled = false;
                             playerBtns.callBtn.disabled = true;
+                            playerBtns.raiseBtn.disabled = true;
                         } else {
                             playerBtns.checkBtn.disabled = true;
                             playerBtns.betBtn.disabled = true;
                             playerBtns.callBtn.disabled = false;
+                            playerBtns.raiseBtn.disabled = false;
                         }
                         scheduleActionRecommendation(seat, { force: true });
                     }
