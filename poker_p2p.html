@@ -2940,25 +2940,51 @@
                         { color: "red",   value: 5   },
                     ];
 
-                    // Spawn chips at `seat` matching `amount`, transfer them all to the pot.
-                    // Uses the fewest chips possible (largest denomination first).
-                    async function spawnChipsForAmount(amount, seat, { skipBroadcast = false } = {}) {
+                    // Pull up to `count` chips of `color` from a seat's stack, removing them.
+                    // Returns the taken chip objects.
+                    function takeChipsFromSeat(seat, color, count) {
+                        const key = getStackKey(seat, color);
+                        const stack = chipStacks[key];
+                        if (!stack || !Array.isArray(stack.members) || stack.members.length === 0) return [];
+                        const taken = stack.members.splice(-count); // take from top
+                        return taken;
+                    }
+
+                    // Gather chips for `amount` from `seat`, reusing existing chips first.
+                    // Returns array of chip objects ready to be animated to the pot.
+                    function gatherChipsForAmount(amount, seat) {
                         let remaining = Math.round(amount);
-                        const spawned = [];
+                        const gathered = [];
                         for (const { color, value } of CHIP_DENOMS) {
                             while (remaining >= value) {
-                                spawned.push(spawnChip(color, seat, { skipBroadcast: true }));
+                                // Try to reuse one existing chip of this color from the seat
+                                const existing = takeChipsFromSeat(seat, color, 1);
+                                if (existing.length > 0) {
+                                    gathered.push(existing[0]);
+                                } else {
+                                    // No chip of this color at seat — spawn a new one
+                                    gathered.push(spawnChip(color, seat, { skipBroadcast: true }));
+                                }
                                 remaining -= value;
                             }
                         }
-                        // Remainder < $5: spawn one red as a fractional stand-in
                         if (remaining > 0) {
-                            spawned.push(spawnChip("red", seat, { skipBroadcast: true }));
+                            const existing = takeChipsFromSeat(seat, "red", 1);
+                            gathered.push(existing.length > 0
+                                ? existing[0]
+                                : spawnChip("red", seat, { skipBroadcast: true }));
                         }
-                        if (spawned.length === 0) return;
+                        return gathered;
+                    }
+
+                    // Gather chips matching `amount` from `seat` (reusing existing ones),
+                    // then animate them all to the pot in parallel.
+                    async function spawnChipsForAmount(amount, seat, { skipBroadcast = false } = {}) {
+                        const gathered = gatherChipsForAmount(amount, seat);
+                        if (gathered.length === 0) return;
                         await wait(200);
                         await Promise.all(
-                            spawned.map(chip =>
+                            gathered.map(chip =>
                                 animateSingleChipTransfer(chip, "pot", { duration: 600 })
                             )
                         );
