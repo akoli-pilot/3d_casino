@@ -136,41 +136,47 @@
 
             /* Bet / Raise amount picker */
             .amountPicker {
+                display: inline-flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 2px;
+            }
+            .amountPicker .pickerControls {
                 display: flex;
                 align-items: center;
-                gap: 3px;
-                background: rgba(7, 28, 31, 0.88);
-                border: 1px solid rgba(143, 210, 216, 0.35);
-                border-radius: 6px;
-                padding: 2px 4px;
+                gap: 2px;
+                background: rgba(7, 28, 31, 0.75);
+                border: 1px solid rgba(143, 210, 216, 0.28);
+                border-radius: 5px;
+                padding: 1px 3px;
             }
-            .amountPicker button {
-                background: #0d6b75 !important;
+            .amountPicker button[data-picker] {
+                background: rgba(13, 107, 117, 0.7) !important;
                 border: 0 !important;
-                width: 22px !important;
-                height: 22px !important;
+                width: 16px !important;
+                height: 16px !important;
                 padding: 0 !important;
-                border-radius: 4px !important;
-                color: white !important;
-                font-size: 14px !important;
+                border-radius: 3px !important;
+                color: #d9f4f6 !important;
+                font-size: 9px !important;
                 line-height: 1 !important;
                 cursor: pointer !important;
                 box-shadow: none !important;
                 flex-shrink: 0;
+                transition: background 0.1s !important;
             }
-            .amountPicker button:hover {
+            .amountPicker button[data-picker]:hover {
                 background: #0f7d88 !important;
-                transform: scale(1.05) !important;
-            }
-            .amountPicker button:disabled {
-                opacity: 0.4 !important;
-                cursor: not-allowed !important;
                 transform: none !important;
             }
+            .amountPicker button[data-picker]:disabled {
+                opacity: 0.35 !important;
+                cursor: not-allowed !important;
+            }
             .amountPicker .amountDisplay {
-                min-width: 44px;
+                min-width: 32px;
                 text-align: center;
-                font-size: 12px;
+                font-size: 10px;
                 font-weight: 700;
                 color: #d9f4f6;
                 pointer-events: none;
@@ -380,16 +386,20 @@
             <button data-action="fold">Fold</button>
             <button data-action="check">Check</button>
             <div class="amountPicker" id="betPicker0">
-                <button data-picker="bet-down" title="−$5">▼</button>
-                <span class="amountDisplay" data-picker-display="bet">$10</span>
-                <button data-picker="bet-up" title="+$5">▲</button>
+                <div class="pickerControls">
+                    <button data-picker="bet-down" title="−$5">▼</button>
+                    <span class="amountDisplay" data-picker-display="bet">$10</span>
+                    <button data-picker="bet-up" title="+$5">▲</button>
+                </div>
                 <button data-action="bet">Bet</button>
             </div>
             <button data-action="call">Call</button>
             <div class="amountPicker" id="raisePicker0">
-                <button data-picker="raise-down" title="−$5">▼</button>
-                <span class="amountDisplay" data-picker-display="raise">$10</span>
-                <button data-picker="raise-up" title="+$5">▲</button>
+                <div class="pickerControls">
+                    <button data-picker="raise-down" title="−$5">▼</button>
+                    <span class="amountDisplay" data-picker-display="raise">$10</span>
+                    <button data-picker="raise-up" title="+$5">▲</button>
+                </div>
                 <button data-action="raise">Raise</button>
             </div>
         </div>
@@ -397,16 +407,20 @@
             <button data-action="fold">Fold</button>
             <button data-action="check">Check</button>
             <div class="amountPicker" id="betPicker1">
-                <button data-picker="bet-down" title="−$5">▼</button>
-                <span class="amountDisplay" data-picker-display="bet">$10</span>
-                <button data-picker="bet-up" title="+$5">▲</button>
+                <div class="pickerControls">
+                    <button data-picker="bet-down" title="−$5">▼</button>
+                    <span class="amountDisplay" data-picker-display="bet">$10</span>
+                    <button data-picker="bet-up" title="+$5">▲</button>
+                </div>
                 <button data-action="bet">Bet</button>
             </div>
             <button data-action="call">Call</button>
             <div class="amountPicker" id="raisePicker1">
-                <button data-picker="raise-down" title="−$5">▼</button>
-                <span class="amountDisplay" data-picker-display="raise">$10</span>
-                <button data-picker="raise-up" title="+$5">▲</button>
+                <div class="pickerControls">
+                    <button data-picker="raise-down" title="−$5">▼</button>
+                    <span class="amountDisplay" data-picker-display="raise">$10</span>
+                    <button data-picker="raise-up" title="+$5">▲</button>
+                </div>
                 <button data-action="raise">Raise</button>
             </div>
         </div>
@@ -414,16 +428,20 @@
             <button data-action="fold">Fold</button>
             <button data-action="check">Check</button>
             <div class="amountPicker" id="betPicker2">
-                <button data-picker="bet-down" title="−$5">▼</button>
-                <span class="amountDisplay" data-picker-display="bet">$10</span>
-                <button data-picker="bet-up" title="+$5">▲</button>
+                <div class="pickerControls">
+                    <button data-picker="bet-down" title="−$5">▼</button>
+                    <span class="amountDisplay" data-picker-display="bet">$10</span>
+                    <button data-picker="bet-up" title="+$5">▲</button>
+                </div>
                 <button data-action="bet">Bet</button>
             </div>
             <button data-action="call">Call</button>
             <div class="amountPicker" id="raisePicker2">
-                <button data-picker="raise-down" title="−$5">▼</button>
-                <span class="amountDisplay" data-picker-display="raise">$10</span>
-                <button data-picker="raise-up" title="+$5">▲</button>
+                <div class="pickerControls">
+                    <button data-picker="raise-down" title="−$5">▼</button>
+                    <span class="amountDisplay" data-picker-display="raise">$10</span>
+                    <button data-picker="raise-up" title="+$5">▲</button>
+                </div>
                 <button data-action="raise">Raise</button>
             </div>
         </div>
@@ -431,16 +449,20 @@
             <button data-action="fold">Fold</button>
             <button data-action="check">Check</button>
             <div class="amountPicker" id="betPicker3">
-                <button data-picker="bet-down" title="−$5">▼</button>
-                <span class="amountDisplay" data-picker-display="bet">$10</span>
-                <button data-picker="bet-up" title="+$5">▲</button>
+                <div class="pickerControls">
+                    <button data-picker="bet-down" title="−$5">▼</button>
+                    <span class="amountDisplay" data-picker-display="bet">$10</span>
+                    <button data-picker="bet-up" title="+$5">▲</button>
+                </div>
                 <button data-action="bet">Bet</button>
             </div>
             <button data-action="call">Call</button>
             <div class="amountPicker" id="raisePicker3">
-                <button data-picker="raise-down" title="−$5">▼</button>
-                <span class="amountDisplay" data-picker-display="raise">$10</span>
-                <button data-picker="raise-up" title="+$5">▲</button>
+                <div class="pickerControls">
+                    <button data-picker="raise-down" title="−$5">▼</button>
+                    <span class="amountDisplay" data-picker-display="raise">$10</span>
+                    <button data-picker="raise-up" title="+$5">▲</button>
+                </div>
                 <button data-action="raise">Raise</button>
             </div>
         </div>
