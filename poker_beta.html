@@ -2249,50 +2249,67 @@
                         return keys;
                     }
 
-                    async function animateChipTransferBetweenSeats(fromSeat, toSeat, opts = {}){
+                    async function animateChipTransferBetweenSeats(fromSeat, toSeat, opts = {}) {
                         const dur = opts.duration || 800;
-                        const moved = [];
+                        const extraShift = (opts && typeof opts.shift === 'number') ? opts.shift : 3.2;
+
+                        // Gather every chip that needs to move
+                        const tasks = [];
                         const fromKeys = getStackKeysForSeat(fromSeat);
-                        for(const fk of fromKeys){
+                        for (const fk of fromKeys) {
                             const stack = chipStacks[fk];
-                            if(!stack || !Array.isArray(stack.members) || stack.members.length === 0) continue;
-                            const members = stack.members.slice();
-                            for(let mi = members.length - 1; mi >= 0; mi--){
-                                const chipObj = members[mi];
-                                try{
-                                    const color = chipObj.color || (chipObj.mesh && chipObj.mesh.userData && chipObj.mesh.userData.chipColor) || 'black';
+                            if (!stack || !Array.isArray(stack.members) || stack.members.length === 0) continue;
+                            for (const chipObj of stack.members.slice()) {
+                                try {
+                                    const color = chipObj.color ||
+                                        (chipObj.mesh && chipObj.mesh.userData && chipObj.mesh.userData.chipColor) ||
+                                        'black';
                                     const destStack = getOrCreateStack(toSeat, color);
+
+                                    // Reserve slot synchronously before any await
+                                    const targetIndex = destStack.members.length + (destStack.pending || 0);
                                     destStack.pending = (destStack.pending || 0) + 1;
-                                    const targetIndex = destStack.members.length;
+
                                     const target = destStack.anchor.clone();
                                     const jitter = getStackJitter(targetIndex);
                                     target.x += jitter.x;
                                     target.z += jitter.z;
-                                    const extraShift = (opts && typeof opts.shift === 'number') ? opts.shift : 3.2;
-                                    try{
-                                        if(String(destStack.seat) === 'dealer'){
+                                    try {
+                                        if (String(destStack.seat) === 'dealer') {
                                             const center = new THREE.Vector3(0, chipPhysics.groundY, 0);
                                             const dir = dealerPosition.clone().sub(center);
                                             dir.y = 0;
-                                            if(dir.lengthSq() > 1e-6) dir.normalize();
+                                            if (dir.lengthSq() > 1e-6) dir.normalize();
                                             target.addScaledVector(dir, extraShift);
                                         }
-                                    }catch(e){ /* ignore if positions unavailable */ }
+                                    } catch (e) {}
                                     const targetY = chipPhysics.groundY + targetIndex * CHIP_THICKNESS + 0.0005;
-                                    await tweenTo(chipObj, { x: target.x, y: targetY, z: target.z }, dur);
-                                    try{
+
+                                    // Remove from source stack now so it isn't double-counted
+                                    try {
                                         const idx = stack.members.indexOf(chipObj);
-                                        if(idx !== -1) stack.members.splice(idx,1);
-                                    }catch(e){}
-                                    chipObj.stackId = destStack.id;
-                                    chipObj.seat = toSeat;
-                                    destStack.members.push(chipObj);
-                                    destStack.pending = Math.max(0, (destStack.pending || 1) - 1);
-                                    try{ chipObj.mesh.rotation.set(0,0,0); chipObj.mesh.position.set(target.x, targetY, target.z); }catch(e){}
-                                    moved.push({ chip: chipObj, from: fk, to: destStack });
-                                }catch(e){ console.warn('chip transfer failed', e); }
+                                        if (idx !== -1) stack.members.splice(idx, 1);
+                                    } catch (e) {}
+
+                                    tasks.push({ chipObj, destStack, target, targetY, fk });
+                                } catch (e) { console.warn('chip prep failed', e); }
                             }
                         }
+
+                        // Fly all chips to their reserved slots in parallel
+                        const moved = [];
+                        await Promise.all(tasks.map(async ({ chipObj, destStack, target, targetY, fk }) => {
+                            try {
+                                await tweenTo(chipObj, { x: target.x, y: targetY, z: target.z }, dur);
+                                chipObj.stackId = destStack.id;
+                                chipObj.seat = toSeat;
+                                destStack.members.push(chipObj);
+                                destStack.pending = Math.max(0, (destStack.pending || 1) - 1);
+                                try { chipObj.mesh.rotation.set(0, 0, 0); chipObj.mesh.position.set(target.x, targetY, target.z); } catch (e) {}
+                                moved.push({ chip: chipObj, from: fk, to: destStack });
+                            } catch (e) { console.warn('chip transfer failed', e); }
+                        }));
+
                         return moved;
                     }
 
@@ -3617,17 +3634,11 @@
                         if (force) waitingForPlayer = true;
                         try {
                             document.getElementById("log").textContent =
-                                `Player ${seat + 1} calls`;
+                                `Player ${seat + 1} calls $${currentBetAmount}`;
                         } catch (e) {}
                         if (!skipBroadcast)
                             emitAction("playerCall", { seat });
-                        spawnChip("blue", seat, { skipBroadcast: true });
-                        await wait(200);
-                        await animateChipTransferBetweenSeats(
-                            seat,
-                            "pot",
-                            { duration: 600 },
-                        );
+                        await spawnChipsForAmount(currentBetAmount, seat, { skipBroadcast: true });
                         await finishPlayerTurn();
                     }
 
