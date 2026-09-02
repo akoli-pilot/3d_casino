@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Deal Yourself In — Poker Lobby</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/peerjs@1/dist/peerjs.min.js"></script>
+<style>
+  :root {
+    --bg: #17120e;
+    --bg-alt: #1f1812;
+    --panel: #221a13;
+    --felt: #1b4b3a;
+    --felt-dark: #0f2e23;
+    --felt-line: #2f7259;
+    --brass: #c9a24b;
+    --brass-bright: #e8c96a;
+    --bone: #ede6d6;
+    --muted: #a89a85;
+    --danger: #c15a4f;
+    --seat-inactive: #3a332b;
+    --radius: 18px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #2a2015 0%, transparent 60%),
+      var(--bg);
+    color: var(--bone);
+    font-family: 'Manrope', sans-serif;
+  }
+
+  .stage {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 460px;
+    background: linear-gradient(180deg, var(--panel), var(--bg-alt));
+    border: 1px solid #3a2e20;
+    border-radius: var(--radius);
+    padding: 32px 28px 28px;
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.6);
+  }
+
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--brass);
+    margin: 0 0 10px;
+  }
+
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 34px;
+    line-height: 1.1;
+    margin: 0 0 10px;
+    color: var(--bone);
+  }
+
+  .sub {
+    margin: 0 0 22px;
+    color: var(--muted);
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+
+  .seat-badge {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--brass-bright);
+    background: rgba(201, 162, 75, 0.1);
+    border: 1px solid rgba(201, 162, 75, 0.35);
+    border-radius: 999px;
+    padding: 6px 12px;
+    width: fit-content;
+    margin: 0 0 18px;
+  }
+
+  .status-line {
+    font-size: 13.5px;
+    color: var(--muted);
+    text-align: center;
+    margin: 0 0 6px;
+    min-height: 18px;
+  }
+
+  .table-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
+  .table {
+    position: relative;
+    width: min(300px, 78vw);
+    aspect-ratio: 16 / 10;
+    margin: 12px 0 14px;
+  }
+
+  .felt {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at 50% 40%, var(--felt) 0%, var(--felt-dark) 100%);
+    border: 3px solid var(--brass);
+    box-shadow:
+      inset 0 0 0 6px var(--felt-dark),
+      inset 0 0 30px rgba(0,0,0,0.5);
+  }
+
+  .felt::after {
+    content: '';
+    position: absolute;
+    inset: 14%;
+    border: 1px solid var(--felt-line);
+    border-radius: 50%;
+    opacity: 0.6;
+  }
+
+  .seat {
+    position: absolute;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 2px solid var(--seat-inactive);
+    background: #100c09;
+    color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 16px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .seat.seated {
+    border-color: var(--brass);
+    background: var(--brass);
+    color: #221a13;
+  }
+
+  .seat.you {
+    box-shadow: 0 0 0 3px var(--bone);
+  }
+
+  .seat.counting {
+    animation: seat-pulse 1s ease-in-out infinite;
+  }
+
+  .seat.fired {
+    border-color: var(--brass-bright);
+    background: var(--brass-bright);
+    color: #221a13;
+    animation: none;
+    box-shadow: 0 0 0 8px rgba(232, 201, 106, 0.15);
+  }
+
+  @keyframes seat-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(232, 201, 106, 0.5); }
+    50% { box-shadow: 0 0 0 10px rgba(232, 201, 106, 0); }
+  }
+
+  .seat-1 { top: -6%; left: 50%; transform: translate(-50%, -50%); }
+  .seat-2 { top: 50%; right: -6%; transform: translate(50%, -50%); }
+  .seat-3 { bottom: -6%; left: 50%; transform: translate(-50%, 50%); }
+  .seat-4 { top: 50%; left: -6%; transform: translate(-50%, -50%); }
+
+  .table-hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 0 0 4px;
+    text-align: center;
+  }
+
+  .primary {
+    width: 100%;
+    padding: 15px 18px;
+    border-radius: 10px;
+    border: none;
+    background: var(--brass);
+    color: #221a13;
+    font-family: 'Manrope', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+  }
+
+  .primary:hover:not(:disabled) { background: var(--brass-bright); }
+  .primary:active:not(:disabled) { transform: scale(0.99); }
+  .primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .ghost {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #4a3c28;
+    background: transparent;
+    color: var(--bone);
+    font-family: 'Manrope', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    display: none;
+    margin-top: 10px;
+  }
+
+  .ghost:hover { border-color: var(--brass); background: rgba(201,162,75,0.08); }
+
+  .start-now {
+    display: none;
+    width: 100%;
+    text-align: center;
+    background: none;
+    border: none;
+    color: var(--brass);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    text-decoration: underline;
+    cursor: pointer;
+    margin-top: 14px;
+    padding: 0;
+  }
+
+  .error {
+    margin: 14px 2px 0;
+    font-size: 13px;
+    color: var(--danger);
+    display: none;
+  }
+
+  .log {
+    margin-top: 16px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  .log p {
+    margin: 0;
+    opacity: 0;
+    animation: log-in 0.35s ease forwards;
+  }
+
+  @keyframes log-in {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .seat, .primary, .log p { transition: none; }
+    .seat.counting { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <main class="card">
+      <p class="eyebrow">PEER-TO-PEER · AUTO-MATCH</p>
+      <h1>Deal Yourself In</h1>
+      <p class="sub">We're grouping you with whoever else is on this page right now. No room name needed — the instant four of you are here, everyone gets dealt into the game a beat apart.</p>
+
+      <div id="seatBadge" class="seat-badge"><span id="seatBadgeText"></span></div>
+
+      <p id="statusLine" class="status-line">Looking for a table…</p>
+
+      <div class="table-wrap">
+        <div class="table">
+          <div class="felt"></div>
+          <div class="seat seat-1" data-seat="1"><span>1</span></div>
+          <div class="seat seat-2" data-seat="2"><span>2</span></div>
+          <div class="seat seat-3" data-seat="3"><span>3</span></div>
+          <div class="seat seat-4" data-seat="4"><span>4</span></div>
+        </div>
+        <p class="table-hint">Seats fill as other visitors are found</p>
+      </div>
+
+      <button id="startNowBtn" class="start-now" type="button">Start now with these players</button>
+
+      <p id="errorMsg" class="error" role="alert"></p>
+      <button id="retryBtn" class="ghost" type="button">Try again</button>
+      <div id="log" class="log" aria-live="polite"></div>
+    </main>
+  </div>
+
+<script>
+(function () {
+  var GAME_URL = 'https://www.cs.csub.edu/~akoli/Casino/poker_p2p.html';
+  var MATCH_PEER_ID = 'pokerlobby-quickmatch-v1';
+  var LAUNCH_BUFFER_MS = 2000;
+  var SEAT_STAGGER_MS = 1000;
+  var FULL_RETRY_MS = 1200;
+
+  var startNowBtn = document.getElementById('startNowBtn');
+  var retryBtn = document.getElementById('retryBtn');
+  var errorMsg = document.getElementById('errorMsg');
+  var statusLine = document.getElementById('statusLine');
+  var logEl = document.getElementById('log');
+  var seatBadge = document.getElementById('seatBadge');
+  var seatBadgeText = document.getElementById('seatBadgeText');
+  var seatEls = {};
+  [1,2,3,4].forEach(function (n) {
+    seatEls[n] = document.querySelector('.seat-' + n);
+  });
+
+  var role = null;        // 'host' | 'guest'
+  var mySeat = null;
+  var peer = null;
+  var guestConn = null;          // guest -> host connection
+  var hostConns = {};            // host: seat -> connection
+  var seats = { 1: 'open', 2: 'open', 3: 'open', 4: 'open' };
+  var hasNavigated = false;
+  var expectingClose = false;    // suppresses the "lost connection" error after an expected rejection
+  var tickHandle = null;
+  var launchSchedule = null;     // {epoch, delays, room}
+
+  var ADJECTIVES = ['lucky','wild','sharp','steady','golden','crooked','silent','loaded','stacked','royal','midnight','bold','quiet','iron','quick'];
+  var NOUNS = ['river','bluff','ante','kicker','showdown','pot','deuce','jack','dealer','chip','rounder','felt','flush','table','stack'];
+
+  function randomRoomName() {
+    var a = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+    var n = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+    var num = Math.floor(10 + Math.random() * 90);
+    return a + '-' + n + '-' + num;
+  }
+
+  function appendLog(text) {
+    var p = document.createElement('p');
+    p.textContent = text;
+    logEl.appendChild(p);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorMsg.style.display = 'block';
+    retryBtn.style.display = 'block';
+    statusLine.textContent = '';
+  }
+
+  function clearError() {
+    errorMsg.style.display = 'none';
+    errorMsg.textContent = '';
+    retryBtn.style.display = 'none';
+  }
+
+  function renderSeats() {
+    [1,2,3,4].forEach(function (n) {
+      var el = seatEls[n];
+      el.classList.toggle('seated', seats[n] === 'seated');
+      el.classList.toggle('you', mySeat === n);
+    });
+    var seatedCount = Object.values(seats).filter(function (s) { return s === 'seated'; }).length;
+    if (role) {
+      var need = 4 - seatedCount;
+      statusLine.textContent = need > 0
+        ? 'Waiting for ' + need + ' more player' + (need === 1 ? '' : 's') + '…'
+        : 'Table full.';
+    }
+    if (role === 'host') {
+      startNowBtn.style.display = (seatedCount >= 2 && seatedCount < 4) ? 'block' : 'none';
+    }
+  }
+
+  function setSeatBadge() {
+    seatBadge.style.display = 'flex';
+    seatBadgeText.textContent = "You're Seat " + mySeat + (role === 'host' ? ' · Host' : '');
+  }
+
+  function seatedList() {
+    return [1,2,3,4].filter(function (n) { return seats[n] === 'seated'; }).sort(function (a,b) { return a-b; });
+  }
+
+  function buildDelays() {
+    var delays = {};
+    seatedList().forEach(function (seat, i) {
+      delays[seat] = i * SEAT_STAGGER_MS;
+    });
+    return delays;
+  }
+
+  function targetUrlFor(room) {
+    return GAME_URL + '?room=' + encodeURIComponent(room);
+  }
+
+  // --- Launch scheduling (shared by host & guest) ---
+  function beginSchedule(epoch, delays, room) {
+    launchSchedule = { epoch: epoch, delays: delays, room: room };
+    startNowBtn.style.display = 'none';
+    statusLine.textContent = 'Dealing everyone in — hang tight.';
+    appendLog('Table full — dealing everyone in a second apart.');
+    if (tickHandle) clearInterval(tickHandle);
+    tickHandle = setInterval(tickSchedule, 100);
+    tickSchedule();
+  }
+
+  function tickSchedule() {
+    if (!launchSchedule) return;
+    var now = Date.now();
+    var anyPending = false;
+    Object.keys(launchSchedule.delays).forEach(function (seatStr) {
+      var seat = parseInt(seatStr, 10);
+      var fireAt = launchSchedule.epoch + launchSchedule.delays[seat];
+      var remain = fireAt - now;
+      var el = seatEls[seat];
+      if (remain > 0) {
+        anyPending = true;
+        el.classList.add('counting');
+        el.querySelector('span').textContent = Math.ceil(remain / 1000);
+      } else {
+        el.classList.remove('counting');
+        el.classList.add('fired');
+        el.querySelector('span').textContent = '✓';
+        if (seat === mySeat && !hasNavigated) {
+          hasNavigated = true;
+          appendLog('Dealing you in now…');
+          var url = targetUrlFor(launchSchedule.room);
+          try { if (peer) peer.destroy(); } catch (e) {}
+          setTimeout(function () { window.location.href = url; }, 50);
+        }
+      }
+    });
+    if (!anyPending && tickHandle) {
+      clearInterval(tickHandle);
+      tickHandle = null;
+    }
+  }
+
+  // --- Host logic ---
+  function becomeHost() {
+    role = 'host';
+    mySeat = 1;
+    seats[1] = 'seated';
+    setSeatBadge();
+    renderSeats();
+    appendLog('No one else was here yet — you\'re the host, Seat 1.');
+
+    peer.on('connection', function (conn) {
+      conn.on('open', function () {
+        var openSeat = [2,3,4].filter(function (n) { return seats[n] === 'open'; })[0];
+        if (!openSeat) {
+          conn.send({ type: 'full' });
+          setTimeout(function () { conn.close(); }, 300);
+          return;
+        }
+        seats[openSeat] = 'seated';
+        hostConns[openSeat] = conn;
+        conn.send({ type: 'assigned', seat: openSeat });
+        appendLog('Found a player for Seat ' + openSeat + '.');
+        renderSeats();
+        broadcastStatus();
+        maybeAutoLaunch();
+      });
+
+      conn.on('close', function () {
+        var freedSeat = Object.keys(hostConns).filter(function (s) { return hostConns[s] === conn; })[0];
+        if (freedSeat) {
+          delete hostConns[freedSeat];
+          seats[freedSeat] = 'open';
+          appendLog('Seat ' + freedSeat + ' left.');
+          renderSeats();
+          broadcastStatus();
+        }
+      });
+    });
+  }
+
+  function broadcastStatus() {
+    Object.keys(hostConns).forEach(function (seat) {
+      hostConns[seat].send({ type: 'status', seats: seats });
+    });
+  }
+
+  function maybeAutoLaunch() {
+    if (seatedList().length === 4) triggerLaunch();
+  }
+
+  function triggerLaunch() {
+    var delays = buildDelays();
+    var epoch = Date.now() + LAUNCH_BUFFER_MS;
+    var gameRoom = randomRoomName();
+    Object.keys(hostConns).forEach(function (seat) {
+      hostConns[seat].send({ type: 'launch', epoch: epoch, delays: delays, room: gameRoom });
+    });
+    beginSchedule(epoch, delays, gameRoom);
+  }
+
+  startNowBtn.addEventListener('click', function () {
+    if (role !== 'host' || launchSchedule) return;
+    triggerLaunch();
+  });
+
+  // --- Guest logic ---
+  function becomeGuest() {
+    role = 'guest';
+    var gp = new Peer();
+    peer = gp;
+    gp.on('open', function () {
+      expectingClose = false;
+      guestConn = gp.connect(MATCH_PEER_ID, { reliable: true });
+      guestConn.on('open', function () {
+        appendLog('Found a table — waiting for a seat…');
+      });
+      guestConn.on('data', function (data) { handleHostData(data); });
+      guestConn.on('close', function () {
+        if (!hasNavigated && !expectingClose) showError('Lost connection to the table. Try again.');
+      });
+    });
+    gp.on('error', function (err) {
+      if (err.type === 'peer-unavailable') {
+        // The table we tried to join disappeared between attempts — look for another.
+        startMatching();
+      } else {
+        showError('Connection error (' + err.type + '). Try again.');
+      }
+    });
+  }
+
+  function handleHostData(data) {
+    if (data.type === 'assigned') {
+      mySeat = data.seat;
+      setSeatBadge();
+      seats[mySeat] = 'seated';
+      renderSeats();
+      appendLog('You took Seat ' + mySeat + '.');
+    } else if (data.type === 'status') {
+      seats = data.seats;
+      renderSeats();
+    } else if (data.type === 'launch') {
+      beginSchedule(data.epoch, data.delays, data.room);
+    } else if (data.type === 'full') {
+      expectingClose = true;
+      statusLine.textContent = 'That table just filled — looking for another…';
+      appendLog('Table filled without you — retrying.');
+      setTimeout(function () {
+        if (peer) { try { peer.destroy(); } catch (e) {} }
+        startMatching();
+      }, FULL_RETRY_MS);
+    }
+  }
+
+  // --- Auto-matchmaking entry point ---
+  function startMatching() {
+    if (tickHandle) { clearInterval(tickHandle); tickHandle = null; }
+    peer = null; guestConn = null; hostConns = {}; role = null; mySeat = null;
+    seats = { 1: 'open', 2: 'open', 3: 'open', 4: 'open' };
+    launchSchedule = null; hasNavigated = false; expectingClose = false;
+    seatBadge.style.display = 'none';
+    statusLine.textContent = 'Looking for a table…';
+    clearError();
+    renderSeats();
+
+    var hp = new Peer(MATCH_PEER_ID);
+    peer = hp;
+
+    hp.on('open', function () {
+      becomeHost();
+    });
+
+    hp.on('error', function (err) {
+      if (err.type === 'unavailable-id') {
+        try { hp.destroy(); } catch (e) {}
+        peer = null;
+        becomeGuest();
+      } else {
+        showError('Connection error (' + err.type + '). Try again.');
+      }
+    });
+  }
+
+  retryBtn.addEventListener('click', startMatching);
+
+  startMatching();
+})();
+</script>
+</body>
+</html>
