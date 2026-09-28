@@ -4433,6 +4433,16 @@
                                 el.style.left = screen.x + "px";
                                 el.style.top = screen.y + 60 + "px";
 
+                                // Hide other players' hand evaluation until showdown
+                                if (
+                                    mySeat >= 0 &&
+                                    s !== mySeat &&
+                                    !(handComplete || gamePhase === "showdown")
+                                ) {
+                                    el.textContent = "";
+                                    continue;
+                                }
+
                                 const seatLabel = s === mySeat ? '(You) ' : `P${s + 1} `;
                                 const playerCards = getSeatCards(s);
                                 const allCards = [
