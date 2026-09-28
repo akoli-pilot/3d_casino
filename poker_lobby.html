@@ -314,7 +314,8 @@
   var GAME_URL = 'https://www.cs.csub.edu/~akoli/Casino/poker_p2p.html';
   var MATCH_PEER_ID = 'pokerlobby-quickmatch-v1';
   var LAUNCH_BUFFER_MS = 2000;
-  var SEAT_STAGGER_MS = 1000;
+  var HOST_WARMUP_MS = 4500;   // extra head start for Seat 1 to load & register as the game's host before anyone else connects
+  var SEAT_STAGGER_MS = 2500;  // gap between guests after the host has warmed up
   var FULL_RETRY_MS = 1200;
 
   var startNowBtn = document.getElementById('startNowBtn');
@@ -400,7 +401,7 @@
   function buildDelays() {
     var delays = {};
     seatedList().forEach(function (seat, i) {
-      delays[seat] = i * SEAT_STAGGER_MS;
+      delays[seat] = i === 0 ? 0 : HOST_WARMUP_MS + (i - 1) * SEAT_STAGGER_MS;
     });
     return delays;
   }
@@ -414,7 +415,7 @@
     launchSchedule = { epoch: epoch, delays: delays, room: room };
     startNowBtn.style.display = 'none';
     statusLine.textContent = 'Dealing everyone in — hang tight.';
-    appendLog('Table full — dealing everyone in a second apart.');
+    appendLog('Table full — Seat 1 gets a head start to load in, then the rest deal in with extra spacing.');
     if (tickHandle) clearInterval(tickHandle);
     tickHandle = setInterval(tickSchedule, 100);
     tickSchedule();
